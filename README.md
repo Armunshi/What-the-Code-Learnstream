@@ -51,7 +51,7 @@ By integrating structured learning with interactive engagement, **LearnStream** 
    
 ## 🔗Links
 - [GitHub Repository](https://github.com/prajyot-codes/WhatheCode-LearnStream)
-- [Website Demo](https://learnstream.onrender.com/)
+- [Website Demo](https://learnstream-chi.vercel.app/)
 
 
 ## 🤖Tech-Stack
