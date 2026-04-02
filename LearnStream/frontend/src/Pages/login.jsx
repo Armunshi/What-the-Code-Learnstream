@@ -66,7 +66,7 @@ const LoginPage = () => {
         {/* Student Login */}
         <div className="p-10">
           <div className="flex flex-col items-center">
-            <img src="/assets/Screenshot 2025-05-23 103312 (1).png" alt="Student" className="w-92" />
+            <img src="/assets/student.jpeg" alt="Student" className="w-92" />
             <h2 className="text-2xl font-semibold text-gray-800 mb-2">Student Login</h2>
             <p className="text-sm text-gray-500">
               Not a member yet? <Link to="/signup/student" className="text-green-500 hover:underline">Sign up!</Link>
@@ -115,7 +115,7 @@ const LoginPage = () => {
         {/* Teacher Login */}
         <div className="bg-gray-50 p-10">
           <div className="flex flex-col items-center">
-            <img src="/assets/Screenshot 2025-05-23 103846.png" alt="Teacher" className="w-92" />
+            <img src="/assets/teacher.jpeg" alt="Teacher" className="w-92" />
             <h2 className="text-2xl font-semibold text-gray-800 mb-2">Teacher Login</h2>
             <p className="text-sm text-gray-500">
               Not a member yet? <Link to="/signup/teacher" className="text-green-500 hover:underline">Sign up!</Link>

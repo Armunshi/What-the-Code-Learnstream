@@ -5,8 +5,8 @@ import React from 'react'
 
 function LoginT() {
   return (
-    <BackgroundWrapper>
-    <Component role={"teacher"} url="../../public/assets/teacher.jpeg"/>
+    <BackgroundWrapper url="LearnStream/frontend/public/assets/teacher.jpeg">
+    <Component role={"teacher"} />
     </BackgroundWrapper>
   )
 }
