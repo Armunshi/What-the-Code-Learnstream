@@ -6,7 +6,7 @@ import React from 'react'
 function LoginT() {
   return (
     <BackgroundWrapper>
-    <Component role={"student"} url={"../../public/assets/images.jpeg"}/>
+    <Component role={"student"} url={"../../public/assets/student.jpeg"}/>
     </BackgroundWrapper>
   )
 }
