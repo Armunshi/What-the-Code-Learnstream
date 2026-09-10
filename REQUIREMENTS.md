@@ -213,7 +213,58 @@ Add a `status` (`pending`/`reviewed`), `grade`, and `feedback` field to the `upl
 
 ---
 
-## 8. New pages
+## 8. Payment, signup, and IDOR fixes (P0/P1)
+
+Findings behind this section are in `UI_AUDIT.md` §7-§8. These are the highest-priority items in the whole document — a broken signup path, tamperable payments, a systemic authorization hole, and a plaintext-password log all outrank any visual/layout work.
+
+### 8.1 Payment amount validation (P0)
+In `backend/src/controllers/Payment.controller.js`'s `createOrder`, replace the client-supplied `amount` with a server-computed one:
+```js
+const courses = await Courses.find({ _id: { $in: course_ids } }).select('price');
+const amount = courses.reduce((sum, c) => sum + c.price, 0) * 100; // paise
+```
+Drop `amount` from the accepted request body entirely once this is in place.
+
+### 8.2 Teacher signup fix (P0)
+In `UserTeacher.controller.js`'s `registerUser`, call the already-defined `generateAccessAndRefreshTokens(userTeacher._id)` (mirrors `UserStudent.controller.js`'s working equivalent) before setting cookies, and replace the undefined `LoggedInUserTeacher` reference with the already-fetched `createdTeacher`. This is a same-file, few-line fix — no schema or route changes needed.
+
+### 8.3 Ownership checks on module/lecture/assignment mutation (P0)
+Add a shared check (small helper or inline) to every mutating handler in `Modules.controller.js`, `Lecture.controller.js`, and `Assignment.controller.js`:
+```js
+const course = await Courses.findById(course_id);
+if (!course) throw new ApiError(404, "Course not found");
+if (course.author.toString() !== req.teacher._id.toString()) {
+  throw new ApiError(403, "Not authorized to modify this course");
+}
+```
+Apply to: `addModule`, `updateModule`, `deleteModule`, `addLectureToModule`, `addAssignmentToModule` (`Modules.controller.js`), `updateLecture`, `deleteLecture` (`Lecture.controller.js`), `deleteAssignment` (`Assignment.controller.js`, `createAssignment` already receives `course_id`/`moduleId` from a route gated only by `verifyJWT` — same check applies there too).
+
+### 8.4 Stop logging plaintext passwords (P0)
+Delete `console.log(req.body)` at `UserStudent.controller.js:50` and `:139` outright — do not replace with a redacted version, just remove.
+
+### 8.5 Payment/checkout reliability (P1)
+- Move enrollment into `verifyPayment` itself (`Payment.controller.js:82-97`) so a successful signature check enrolls the student in the same request, instead of depending on a second frontend call (`displayRazorpay.js:20-39`) that can silently fail.
+- Add a "clear purchased items from cart" step (bulk removal or a dedicated endpoint) triggered by that same successful verification.
+- Add a loading/disabled state to the checkout button (`Cart.jsx`) and `BuyCourseButton` (`Payment.jsx`) for the duration of the Razorpay flow.
+- Move the Razorpay key out of `displayRazorpay.js:90` into `VITE_RAZORPAY_KEY_ID`; replace the hardcoded prefill email/phone (lines 100-103) with the logged-in user's real info from `AuthContext`.
+- Delete `components/Checkout.jsx` (dead, throws `ReferenceError` if rendered).
+
+### 8.6 Signup/auth backend hardening (P1)
+- Add server-side password strength validation to both `registerUserStudent` and `registerUser` (reuse the intent of the existing client-side `PWD_REGEX` from `components/Signup.jsx:9`, enforced server-side too).
+- Fix `components/Signup.jsx:88-97`'s dead success-message branch (navigation currently happens before the success state can render) and add a submit-button loading/disabled state to prevent duplicate signups.
+- Fix the broken `/terms` link (`Signup.jsx:210`) once §9's static pages exist, or point it at a real anchor in the interim.
+
+### 8.7 Content and polish cleanup (P2)
+- Replace the live Udemy testimonials (`testimonials.jsx:6-35`) and Udemy links (`udemycomponent.jsx:19,29,39`) with real LearnStream content — do not ship competitor branding/links in production.
+- Fix `udemycomponent.jsx`'s feature selector so choosing a feature actually swaps the displayed image (currently hardcoded to one static path).
+- Fix `BackgroundWrapper.jsx:8`'s stray closing paren in the `url(...)` CSS value (relevant only if the Login-students/teacher pages are kept rather than deleted — see §10).
+- Add backdrop-click-to-close and an `aria-label` to `PDFPreviewModal.jsx`'s close button (match the pattern already used in `Pages/Modal.jsx`); add a `sandbox` attribute to its `<iframe>`.
+- Add an active-category indicator to `CategoryBar.jsx`.
+- Fix `Courseupdatation.jsx`: use the already-fetched `ownerId` as an actual guard, add `Authorization` headers to its three POST calls, surface per-item failures instead of a blanket "success" message, and replace the `array.length + 1` id scheme (which collides after deletions) with a stable id generator.
+
+---
+
+## 9. New pages
 
 | Route | Purpose | Notes |
 |---|---|---|
@@ -228,21 +279,24 @@ All six must be registered in `frontend/src/main.jsx`'s router and linked from t
 
 ---
 
-## 9. Cleanup (do alongside, not after)
+## 10. Cleanup (do alongside, not after)
 
 - Delete `frontend/src/App.jsx` (dead, broken imports — not the real entry point; `main.jsx` is).
-- Delete `components/login-form.jsx` and `components/Signup.jsx` after confirming zero imports (superseded by `Pages/Login-students.jsx` / `Pages/Signup-students.jsx` / `Pages/Login-teacher.jsx` / `Pages/Signup-Teacher.jsx`).
+- Delete `components/login-form.jsx`, `components/Signup.jsx`, and `components/Checkout.jsx` after confirming zero imports (superseded by `Pages/Login-students.jsx` / `Pages/Signup-students.jsx` / `Pages/Login-teacher.jsx` / `Pages/Signup-Teacher.jsx`; `Checkout.jsx` is dead and broken — see §8.5).
+- Delete `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx` and their route entries in `main.jsx:29-30` — confirmed unreachable from any UI path; `Pages/login.jsx` is the live combined login page (§8.6 in `UI_AUDIT.md`).
 - Remove `mdb-react-ui-kit` and `@mui/icons-material` from `frontend/package.json` once §2's migration is complete and nothing references them.
 
 ---
 
-## 10. Suggested delivery order
+## 11. Suggested delivery order
 
-1. Auth bug fix (§6.1–6.2) + assignment-leak security fix (§7.1) — smallest changes, highest impact: one unblocks everyone from seeing "unauthorized", the other stops a real data leak.
+1. **P0 — ship together first**: fix `StudentPage.jsx`'s auth-header bug (§6.1–6.2), the assignment-leak (§7.1 in `UI_AUDIT.md` §6.4), teacher signup's `ReferenceError` (§8.2), the module/lecture/assignment ownership checks (§8.3), the plaintext-password logging (§8.4), and server-side payment amount validation (§8.1). None of these are cosmetic — they're either broken-by-default or actively exploitable.
 2. Navbar rebuild with Login/Sign Up links + grid/flex alignment (§4.3) — unblocks discoverability of signup.
 3. Hero section fix (§5) + course count stat.
-4. shadcn/ui migration for navbar + login/signup forms (§2).
-5. Cart layout fix (§4.4).
-6. New pages: About, Services, Pricing, Contact, Profile (§8).
-7. Real lecture-completion tracking + assignment-completion gating (§7.2), teacher grading (§7.3).
-8. Axios interceptor + remaining smaller fixes + cleanup (§6.3, §7.4, §9).
+4. Payment/checkout reliability: atomic enrollment, cart clearing, double-submit protection, remove hardcoded Razorpay key (§8.5).
+5. shadcn/ui migration for navbar + login/signup forms (§2).
+6. Cart layout fix (§4.4).
+7. New pages: About, Services, Pricing, Contact, Profile (§9).
+8. Real lecture-completion tracking + assignment-completion gating (§7.2), teacher grading (§7.3).
+9. Signup/auth hardening + content/polish cleanup (§8.6, §8.7).
+10. Axios interceptor + remaining smaller fixes + dead-code/dependency cleanup (§6.3, §7.4, §10).
