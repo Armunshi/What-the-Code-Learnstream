@@ -3,6 +3,7 @@
 import Razorpay from "razorpay";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Order } from "../models/Orders.js";
+import { Courses } from "../models/Course/courses.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import crypto from "crypto";
@@ -15,15 +16,20 @@ const instance = new Razorpay({
 const createOrder = asyncHandler(async (req, res) => {
   const user_id = req.student._id;
 
-  let { course_ids, amount, currency = "INR" } = req.body;
-  console.log("Raw body:", req.body);
+  const { course_ids, currency = "INR" } = req.body;
 
-  if (!Array.isArray(course_ids) || course_ids.length === 0 || !amount) {
-    throw new ApiError(400, "course_ids (array) and amount are required");
+  if (!Array.isArray(course_ids) || course_ids.length === 0) {
+    throw new ApiError(400, "course_ids (array) is required");
   }
 
-  if (typeof amount === "string") amount = parseInt(amount, 10);
-  amount = amount * 100; // Convert to paise
+  // Amount is derived server-side from real course prices — never trust a
+  // client-supplied amount, since that would let a tampered request pay
+  // whatever it wants for a course.
+  const courses = await Courses.find({ _id: { $in: course_ids } }).select("price");
+  if (courses.length !== course_ids.length) {
+    throw new ApiError(404, "One or more courses could not be found");
+  }
+  const amount = courses.reduce((sum, course) => sum + course.price, 0) * 100; // paise
 
   const receipt = `rcpt-${Date.now()}`;
 

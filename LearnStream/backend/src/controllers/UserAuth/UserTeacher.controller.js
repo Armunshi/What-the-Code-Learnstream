@@ -62,16 +62,14 @@ const registerUser = asyncHandler( async (req,res) =>{
         "-password -refreshToken"
     )
 
-
-
-    console.log("Cookies set: ", accessToken, refreshToken);
+    const {accessToken, refreshToken} = await generateAccessAndRefreshTokens(userTeacher._id);
 
     return res.status(200)
     .cookie("teacherAccessToken" ,accessToken,options)
     .cookie("teacherRefreshToken" ,refreshToken,options)
     .json(
         new ApiResponse(200,{
-            user: LoggedInUserTeacher,role:'teacher',accessToken,refreshToken
+            user: createdTeacher,role:'teacher',accessToken,refreshToken
         },
         "User Logged in Succesfully"
     )

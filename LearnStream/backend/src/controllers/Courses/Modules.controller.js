@@ -8,6 +8,7 @@ import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary, uploadOnClo
 import { UserStudent } from "../../models/user/userstudentmodel.js";
 import { Progress } from "../../models/Course/Progress.js";
 import { Modules } from "../../models/Course/Modules.js";
+import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const addModule = asyncHandler(async (req, res) => {
     const { course_id } = req.params;
@@ -18,9 +19,7 @@ const addModule = asyncHandler(async (req, res) => {
     }
 
     const course = await Courses.findById(course_id);
-    if (!course) {
-        throw new ApiError(404, "Course not found");
-    }
+    assertCourseOwnership(course, req.teacher._id);
 
     const newModule = await Modules.create({
         title,
@@ -106,6 +105,9 @@ const updateModule = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Module not found");
     }
 
+    const course = await Courses.findById(module.course);
+    assertCourseOwnership(course, req.teacher._id);
+
     if (title) module.title = title;
     if (description) module.description = description;
 
@@ -123,6 +125,9 @@ const deleteModule = asyncHandler(async (req, res) => {
     if (!module) {
         throw new ApiError(404, "Module not found");
     }
+
+    const course = await Courses.findById(module.course);
+    assertCourseOwnership(course, req.teacher._id);
 
     await module.deleteOne(); // Triggers the `pre` middleware for cleanup
 

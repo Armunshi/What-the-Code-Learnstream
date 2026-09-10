@@ -8,6 +8,7 @@ import { deleteMediaFromCloudinary, uploadOnCloudinary } from "../../utils/cloud
 // import { UserStudent } from "../../models/student/userstudentmodel.js";
 import { Progress } from "../../models/Course/Progress.js";
 import { Modules } from "../../models/Course/Modules.js";
+import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 import fs from 'fs-extra';
 
 const addLecture = asyncHandler(async (req, res) => {
@@ -18,6 +19,9 @@ const addLecture = asyncHandler(async (req, res) => {
     if (!title || !moduleId || !course_id) {
         throw new ApiError(400, 'Missing required fields: title, moduleId, or course_id');
     }
+
+    const course = await Courses.findById(course_id);
+    assertCourseOwnership(course, req.teacher._id);
 
     const videoLocalPath = req.file?.path;
 
@@ -78,13 +82,16 @@ const addLecture = asyncHandler(async (req, res) => {
 
 
 const updateLecture = asyncHandler(async (req, res) => {
-    const { module_id, lecture_id } = req.params;
+    const { course_id, moduleId, lecture_id } = req.params;
     const { title, enableFreePreview } = req.body;
 
-    const module = await Modules.findById(module_id);
+    const module = await Modules.findById(moduleId);
     if (!module) {
         throw new ApiError(404, "Module not found");
     }
+
+    const course = await Courses.findById(course_id);
+    assertCourseOwnership(course, req.teacher._id);
 
     const lecture = await Lectures.findById(lecture_id);
     if (!lecture) {
@@ -123,15 +130,13 @@ const deleteLecture = asyncHandler(async (req,res)=>{
     const course = await  Courses.findById(course_id)
     const lecture = await Lectures.findById(lecture_id)
     const module = await Modules.findById(moduleId)
-    if (!course){
-        throw new ApiError(404,"Course Not Found")
-    }
     if (!lecture){
         throw new ApiError(404,"Lecture Not Found")
     }
     if (!module){
         throw new ApiError(404,"Lecture Not Found")
     }
+    assertCourseOwnership(course, req.teacher._id);
 
     await deleteMediaFromCloudinary(lecture.public_id);
 

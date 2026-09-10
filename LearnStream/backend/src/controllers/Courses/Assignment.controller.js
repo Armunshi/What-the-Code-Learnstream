@@ -45,6 +45,7 @@ import { Modules } from "../../models/Course/Modules.js";
 // }) 
 import fs from "fs/promises"; // Use fs.promises for async operations
 import { Progress } from "../../models/Course/Progress.js";
+import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const createAssignment = asyncHandler(async (req, res) => {
     const { title, deadline } = req.body;
@@ -54,6 +55,9 @@ const createAssignment = asyncHandler(async (req, res) => {
     if (!course_id || !title || !moduleId) {
         throw new ApiError('CourseId, Title, and ModuleId cannot be empty');
     }
+
+    const ownerCourse = await Courses.findById(course_id);
+    assertCourseOwnership(ownerCourse, req.teacher._id);
 
     // ✅ Check for uploaded files
     const assignmentFiles = req.files?.assignmentFiles;
@@ -163,31 +167,35 @@ const getAssignmentById = asyncHandler(async (req, res)=>{
     }
 
     const assignment = await Assignments.findById(assignmentId).select('-module_id -assignmentUrls')
-    console.log(assignment)
     if (!assignment){
         throw new ApiError(404,'The Assignment Requested was not found');
     }
+
+    // Only return the requesting student's own submissions, never classmates'.
+    const assignmentObject = assignment.toObject();
+    assignmentObject.uploadedAssignments = assignmentObject.uploadedAssignments.filter(
+        (submission) => submission.studentId.toString() === req.student._id.toString()
+    );
+
     res.status(200).json(
-        new ApiResponse(200,assignment,'Assignment sent succesfully')
+        new ApiResponse(200,assignmentObject,'Assignment sent succesfully')
     )
-}) 
+})
 const deleteAssignment = asyncHandler(async (req,res)=>{
     const {moduleId,courseId,assignmentId} = req.params
 
     const course = await  Courses.findById(courseId)
     const assignment = await Assignments.findById(assignmentId)
     const module = await Modules.findById(moduleId)
-    
-    if (!course){
-        throw new ApiError(404,"Course Not Found")
-    }
+
     if (!assignment){
         throw new ApiError(404,"Lecture Not Found")
     }
     if (!module){
         throw new ApiError(404,"Lecture Not Found")
     }
-    
+    assertCourseOwnership(course, req.teacher._id);
+
     assignment.public_id.forEach(async (id)=>{
         await deleteMediaFromCloudinary(id);
     })
