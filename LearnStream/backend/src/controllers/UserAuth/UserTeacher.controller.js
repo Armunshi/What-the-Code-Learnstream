@@ -150,12 +150,17 @@ const logoutUser = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "User logged out"));
 });
 
-
-
+const getCurrentTeacher = asyncHandler(async (req, res) => {
+    // verifyJWT already loads req.teacher minus password/refreshToken.
+    return res.status(200).json(
+        new ApiResponse(200, req.teacher, "Current teacher fetched successfully")
+    );
+});
 
 export {
     registerUser,
     loginUser,
     logoutUser,
+    getCurrentTeacher,
     generateAccessAndRefreshTokens
 }

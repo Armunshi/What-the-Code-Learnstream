@@ -1,105 +1,167 @@
-import React, { useEffect, useState } from "react";
-import { Avatar, Dropdown, DropdownItem, Navbar } from "flowbite-react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Avatar, Dropdown, DropdownItem } from "flowbite-react";
+import { Link, useNavigate } from "react-router-dom";
 import axios from "../api/axios";
 import { useContext } from "react";
 import AuthContext from "../contexts/AuthProvider";
-// import {user.jpg} from "../assests/user.jpg"
-import {Badge, ShoppingCart} from "lucide-react"
+import { ShoppingCart, Menu, X } from "lucide-react";
+
+const navLinks = [
+  { to: "/", label: "Home" },
+  { to: "/about", label: "About" },
+  { to: "/services", label: "Services" },
+  { to: "/pricing", label: "Pricing" },
+  { to: "/contact", label: "Contact" },
+];
+
 const Navbar1 = () => {
-  
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const {auth,setAuth} = useContext(AuthContext);
-  const [userName, setUserName] = useState("Guest");
-  const navigate = useNavigate()
-  // Fetch user details from localStorage when component mounts
+  const { auth, setAuth } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const [cartCount, setCartCount] = useState(0);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   useEffect(() => {
-    console.log(auth);
-  }, []);
-  const handleMyCourses =  ()=>{
-    navigate(`/${auth?.role}/${auth?.user_id}`)
-  }
-  const handleLogout =async () => {
+    const fetchCartCount = async () => {
+      try {
+        const response = await axios.get("/courses/cart", {
+          headers: { Authorization: `Bearer ${auth?.accessToken}` },
+          withCredentials: true,
+        });
+        setCartCount(response.data?.data?.items?.length || 0);
+      } catch {
+        setCartCount(0);
+      }
+    };
+
+    if (auth?.accessToken && auth?.role === "student") {
+      fetchCartCount();
+    } else {
+      setCartCount(0);
+    }
+  }, [auth?.accessToken, auth?.role]);
+
+  const handleMyCourses = () => {
+    navigate(`/${auth?.role}/${auth?.user_id}`);
+  };
+
+  const handleProfile = () => {
+    navigate(`/${auth?.role}/${auth?.user_id}/profile`);
+  };
+
+  const handleLogout = async () => {
     try {
       const response = await axios.post(
         `/user/${auth?.role}/logout`,
-        {}, 
+        {},
         {
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             Authorization: `Bearer ${auth?.accessToken}`,
           },
           withCredentials: true,
         }
       );
-      
-      if (response){
+
+      if (response) {
         localStorage.clear();
-        navigate('/');
-        setAuth({})
+        setAuth({});
+        navigate("/");
       }
-      else throw Error;
     } catch (error) {
-      console.log(error)
+      console.log(error);
     }
-    
   };
 
   return (
-    <Navbar fluid rounded className="mt-0 pt-3">
-      {/* Brand Logo */}
-      <Navbar.Brand className="font-league font-[700] text-xl" href="/">
-        <span className="text-[#7ED757]">Learn</span>Stream
-      </Navbar.Brand>
+    <nav className="border-b bg-white">
+      <div className="max-w-screen-xl mx-auto px-4 md:px-8 flex items-center justify-between h-16">
+        <Link to="/" className="font-league font-[700] text-xl">
+          <span className="text-[#7ED757]">Learn</span>Stream
+        </Link>
 
-      {/* Right Section */}
-      <div className="flex md:order-2">
-        {/* Dropdown Menu for Logged-In Users */}
-        {auth?.accessToken && (
-          <Dropdown
-            arrowIcon
-            inline
-            label={
-              <Avatar
-                alt="User Avatar"
-                img={avatarUrl} // Dynamically fetched avatar URL
-                rounded
-              />
-            }
+        <div className="hidden md:flex items-center gap-6">
+          {navLinks.map((link) => (
+            <Link key={link.to} to={link.to} className="text-sm font-medium text-gray-700 hover:text-[#588157]">
+              {link.label}
+            </Link>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-4">
+          {auth?.accessToken ? (
+            <>
+              {auth?.role === "student" && (
+                <Link to="/cart" className="relative p-2">
+                  <ShoppingCart size={20} />
+                  {cartCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-[#7ED757] text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                      {cartCount}
+                    </span>
+                  )}
+                </Link>
+              )}
+              <Dropdown arrowIcon inline label={<Avatar alt="User Avatar" rounded />}>
+                <Dropdown.Header>
+                  <span className="block text-sm">{auth?.name}</span>
+                </Dropdown.Header>
+                <DropdownItem onClick={handleMyCourses}>My Courses</DropdownItem>
+                <DropdownItem onClick={handleProfile}>Profile</DropdownItem>
+                <DropdownItem onClick={handleLogout}>Sign out</DropdownItem>
+              </Dropdown>
+            </>
+          ) : (
+            <div className="hidden sm:flex items-center gap-3">
+              <Link to="/login" className="text-sm font-medium text-gray-700 hover:text-[#588157]">
+                Log in
+              </Link>
+              <Link
+                to="/signup/student"
+                className="rounded bg-[#588157] px-4 py-2 text-sm font-medium text-white shadow hover:bg-[#137dc7]"
+              >
+                Sign up
+              </Link>
+            </div>
+          )}
+
+          <button
+            className="md:hidden p-2"
+            onClick={() => setMobileOpen((open) => !open)}
+            aria-label="Toggle navigation menu"
           >
-            <Dropdown.Header>
-              <span className="block text-sm">{userName}</span>
-            </Dropdown.Header>
-            <Dropdown.Item onClick={(handleMyCourses)}>My Courses</Dropdown.Item>
-            <Dropdown.Item onClick={handleLogout}>Sign out</Dropdown.Item>
-          </Dropdown>
-        )}
-        
-        {
-            /* Cart */
-             auth?.accessToken &&(
-                <ShoppingCart onClick={()=>{
-                  navigate(`/cart`)
-                }}>
-                </ShoppingCart>
-            )
-        }
-        
-        {/* Navbar Toggle (Mobile) */}
-        <Navbar.Toggle />
+            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </div>
 
-      {/* Navbar Links */}
-      <Navbar.Collapse>
-        <Navbar.Link href="/" active>
-          Home
-        </Navbar.Link>
-        <Navbar.Link href="/about">About</Navbar.Link>
-        <Navbar.Link href="/services">Services</Navbar.Link>
-        <Navbar.Link href="/pricing">Pricing</Navbar.Link>
-        <Navbar.Link href="/contact">Contact</Navbar.Link>
-      </Navbar.Collapse>
-    </Navbar>
+      {mobileOpen && (
+        <div className="md:hidden border-t px-4 py-3 flex flex-col gap-3">
+          {navLinks.map((link) => (
+            <Link
+              key={link.to}
+              to={link.to}
+              className="text-sm font-medium text-gray-700"
+              onClick={() => setMobileOpen(false)}
+            >
+              {link.label}
+            </Link>
+          ))}
+          {!auth?.accessToken && (
+            <>
+              <Link to="/login" className="text-sm font-medium text-gray-700" onClick={() => setMobileOpen(false)}>
+                Log in
+              </Link>
+              <Link
+                to="/signup/student"
+                className="text-sm font-medium text-[#588157]"
+                onClick={() => setMobileOpen(false)}
+              >
+                Sign up
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+    </nav>
   );
 };
 

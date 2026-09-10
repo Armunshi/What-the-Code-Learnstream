@@ -1,8 +1,10 @@
 import {Router} from "express"
-import { loginUserStudent, logoutUserStudent,  registerUserStudent } from "../controllers/UserAuth/UserStudent.controller.js";
+import { loginUserStudent, logoutUserStudent,  registerUserStudent, getCurrentStudent } from "../controllers/UserAuth/UserStudent.controller.js";
 import { upload } from "../middleware/multer.middleware.js";
 import { verifyJWTStudent } from "../middleware/authstudent.middleware.js";
 const router =Router();
+
+router.route('/me').get(verifyJWTStudent, getCurrentStudent)
 
 router.route('/signup').post(
     // injecting middle ware

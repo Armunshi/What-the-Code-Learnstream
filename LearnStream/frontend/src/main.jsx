@@ -20,6 +20,12 @@ import LectureAssig from './Pages/LectureAssig.jsx';
 import UploadedAssignment from './Pages/UploadedAssignment.jsx';
 import LoginPage from './Pages/login.jsx';
 import Cart from './Pages/Cart.jsx';
+import About from './Pages/About.jsx';
+import Services from './Pages/Services.jsx';
+import Pricing from './Pages/Pricing.jsx';
+import Contact from './Pages/Contact.jsx';
+import StudentProfile from './Pages/StudentProfile.jsx';
+import TeacherProfile from './Pages/TeacherProfile.jsx';
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -30,6 +36,11 @@ const router = createBrowserRouter(
       <Route path='login/teacher' element={<LoginT />} />
       <Route path='signup/student' element={<SignupS />} />
       <Route path='signup/teacher' element={<SignupT />} />
+      <Route path='about' element={<About />} />
+      <Route path='services' element={<Services />} />
+      <Route path='pricing' element={<Pricing />} />
+      <Route path='contact' element={<Contact />} />
+      <Route path='teacher/:user_id/profile' element={<TeacherProfile />} />
       <Route path='teacher/:user_id' element={<Teachers />} />
       <Route path='teacher/:user_id/makecourse' element={<MakeaCourse />} />
       {/* <Route path='teacher/:user_id/:course_id' element={<ModuleForm />} /> */}
@@ -38,9 +49,10 @@ const router = createBrowserRouter(
       <Route path='user/:course_id'  element={<ViewStudentModules/>} />
       <Route path='student/:user_id/Cart' element={<Cart/>}/>
       <Route path ='student/:user_id/:course_id/:module_id/view' element={<LectureAssig/>}/>
+      <Route path='student/:user_id/profile' element={<StudentProfile />} />
       <Route path='student/:user_id' element={<Student />} />
       <Route path='cart/' element={<Cart/>} />
-      
+
     </Route>
   )
 );
