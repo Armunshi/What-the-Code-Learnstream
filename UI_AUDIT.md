@@ -84,7 +84,7 @@ There is also no axios response interceptor to catch a `401` and transparently r
 ### 2.7 Dead code left in the repo
 
 - `frontend/src/App.jsx` is **not the real entry point** (`main.jsx` is — it builds its own router directly with `createBrowserRouter`) and is broken on its own terms: it uses `<Router>`, `<Routes>`, `<Route>` without importing any of them from `react-router-dom`, and imports from paths that don't exist (`./flowbite-componets/Navbar1`, `'/pages/Student '` with a trailing space). Safe to delete.
-- `components/login-form.jsx` and `components/Signup.jsx` are not imported by any route in `main.jsx` (the live routes use `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`, `Pages/Signup-students.jsx`, `Pages/Signup-Teacher.jsx`, `Pages/login.jsx` instead). Confirm and delete to stop the duplicate/competing login UI from causing confusion during future edits.
+- **Correction (this bullet originally claimed `components/login-form.jsx` and `components/Signup.jsx` were unused — that was wrong, caught during manual testing in §10.1):** `components/Signup.jsx` is **live** — it's the shared form rendered by both `Pages/Signup-students.jsx` (`role="student"`) and `Pages/Signup-Teacher.jsx` (`role="teacher"`), which are the actual `/signup/student` and `/signup/teacher` routes in `main.jsx`. `components/login-form.jsx` is also imported (by `Pages/Login-students.jsx`/`Pages/Login-teacher.jsx`, themselves still registered as routes) — "dead" was too strong; §8.6's more careful framing (reachable by direct URL but not linked from any live page) is the accurate one for those two Login-* pages specifically. Neither `Signup.jsx` nor `login-form.jsx` should be deleted.
 - `mdb-react-ui-kit` and `@mui/icons-material` in `package.json` — no current usage found; remove unless something depends on them.
 
 ---
@@ -235,7 +235,32 @@ Separately, `udemycomponent.jsx`'s `LearningGoals` feature list (lines 78-83) al
 
 ---
 
-## 9. Summary of everything to correct
+## 10. Manual testing findings (post-implementation)
+
+After Modules 0-3 shipped, the app was run locally and manually tested. This surfaced real gaps the static code audit missed, plus one correction to §2.7 above.
+
+### 10.1 Sign-up has no way to switch roles — fixed
+Confirmed: `components/Signup.jsx` (the live form behind both `/signup/student` and `/signup/teacher`) never offered a link to the other role, unlike `Pages/login.jsx` which shows Student and Teacher side by side. Anyone arriving at `/signup/student` (e.g. via the navbar's "Sign up" link) had no visible path to teacher signup, which was the real blocker to testing the teacher workflow — not a leftover backend issue, since Module 1 already fixed the teacher-signup crash itself. **Fixed**: `Signup.jsx` now shows "Signing up to teach instead? Sign up as a teacher" (and the mirror image on the teacher form), matching `login.jsx`'s existing cross-link pattern.
+
+### 10.2 Razorpay checkout modal did not appear — inconclusive, needs a repro detail
+Reported: clicking "Proceed to Checkout" / "Buy Now" did not open the Razorpay modal. Investigated directly (not just re-read the code):
+- `backend/.env` **does** have `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` set (verified they load via `dotenv` despite unusual `KEY = value` spacing in the file; values were not printed).
+- The frontend's `VITE_RAZORPAY_KEY_ID` fallback (`rzp_test_yLlU5Vi0wMY8hC`, in `displayRazorpay.js`) **matches** the backend's configured `RAZORPAY_KEY_ID` exactly — ruled out a key mismatch between the widget and the order.
+- Outbound network access to `https://checkout.razorpay.com/v1/checkout.js` (the script `displayRazorpay.js` injects) resolved with `HTTP 200` from this machine.
+- Could not reproduce live: no Claude-in-Chrome browser extension was connected in this session, and a full purchase flow wasn't simulated via curl because doing so would write test `Order`/enrollment records into what `courses/getallCourses` confirms is a live-looking seeded database, not a local/throwaway one — not done without the user's OK.
+- **What's needed to pin the exact cause**: on the next attempt, check the browser console for any error (including a plain `alert("Razorpay SDK failed to load.")`, which is easy to miss and was the prior code's only failure feedback — see 10.2.1) and check the Network tab for the `/payment/create-order` request's response body.
+
+**10.2.1 — done regardless of root cause**: the checkout flow's error handling was upgraded so a failure is never silent again — see `REQUIREMENTS.md` §8.5-adjacent follow-up: replace the plain `alert()` calls in `displayRazorpay.js` with an on-page, dismissible error state that also logs the server's actual error message (not just a generic string), so any future failure is immediately visible and diagnosable without a console.
+
+### 10.3 Category bar and course catalog grid are unchanged
+Confirmed: `components/CategoryBar.jsx` and `components/CourseComp.jsx` were not touched by Modules 0-3 (those modules covered navbar, hero, payment, and new pages, not the course browsing UI). The known defects here — hardcoded 5-star ratings (§6.1), no active-category indicator (§6.5/§8.10), inconsistent card spacing — are already logged but hadn't been scheduled ahead of Module 4. **Action**: pull the category bar and course grid restyle forward into Module 4 explicitly (was previously implied by "apply the grid pattern... to the course card list" in `REQUIREMENTS.md` §5, but not called out as its own line item).
+
+### 10.4 Cart and dashboard styling still largely original
+Expected and by design — Module 4 (design system consolidation: shadcn/ui migration, shared design tokens, cart/course-grid relayout) hadn't started yet when this round of testing happened. No new finding here beyond confirming Module 4 is still pending.
+
+---
+
+## 11. Summary of everything to correct
 
 **Critical — ship first (P0):**
 1. Fix `StudentPage.jsx:49-53`'s Authorization header placement bug — the original "unauthorized after login" root cause (§2.1).
@@ -265,6 +290,8 @@ Separately, `udemycomponent.jsx`'s `LearningGoals` feature list (lines 78-83) al
 21. Fix `Courseupdatation.jsx`'s missing auth headers, silent-failure/false-success UX, and ID-collision bug (§8.8).
 22. Add double-submit protection to checkout buttons (§7.4).
 23. Minor polish: `PDFPreviewModal`/`CategoryBar`/`BackgroundWrapper` fixes (§8.10, §8.6).
+24. Redesign the category bar and course catalog grid (`CategoryBar.jsx`, `CourseComp.jsx`) — confirmed still untouched by manual testing (§10.3); pull forward into Module 4 explicitly rather than leaving it implicit.
+25. Replace the checkout flow's plain `alert()` failure messages with a visible, dismissible on-page error state that surfaces the server's actual error text (§10.2.1) — needed regardless of what the Razorpay modal's root cause turns out to be.
 
 **Cleanup (P3):**
-24. Delete dead code: `App.jsx`, `components/login-form.jsx`, `components/Signup.jsx`, `components/Checkout.jsx`, `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`; remove unused `mdb-react-ui-kit`/`@mui/icons-material` dependencies.
+26. Delete dead code: `App.jsx`, `components/Checkout.jsx` (already done), `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`, and — only once those three are gone — `components/login-form.jsx`; remove unused `mdb-react-ui-kit`/`@mui/icons-material` dependencies. **`components/Signup.jsx` is live and must not be deleted** (§2.7 correction).

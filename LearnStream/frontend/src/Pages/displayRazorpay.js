@@ -10,11 +10,16 @@ async function loadScript(src) {
     document.body.appendChild(script);
   });
 }
-export const displayRazorpay = async ({ course_ids, token, setCartItems, studentName, onSettled }) => {
+export const displayRazorpay = async ({ course_ids, token, setCartItems, studentName, onSettled, onError }) => {
+  const fail = (message) => {
+    console.error(message);
+    onError?.(message);
+    onSettled?.();
+  };
+
   const res = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
   if (!res) {
-    alert("Razorpay SDK failed to load.");
-    onSettled?.();
+    fail("Razorpay's checkout script failed to load. Check your internet connection and try again.");
     return;
   }
 
@@ -43,14 +48,15 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
         if (typeof setCartItems === "function") {
           setCartItems((prev) => prev.filter((item) => !course_ids.includes(item._id)));
         }
+        onSettled?.();
       } else {
-        alert("Payment verification failed. If you were charged, contact support.");
+        fail("Payment verification failed. If you were charged, contact support.");
       }
     } catch (err) {
-      console.error("Verification Error:", err);
-      alert("Payment verification failed. If you were charged, contact support.");
-    } finally {
-      onSettled?.();
+      fail(
+        err.response?.data?.message ||
+          "Payment verification failed. If you were charged, contact support."
+      );
     }
   };
 
@@ -69,9 +75,7 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
     );
     order = data.data;
   } catch (err) {
-    console.error("Order creation error:", err);
-    alert("Could not start checkout. Please try again.");
-    onSettled?.();
+    fail(err.response?.data?.message || "Could not start checkout. Please try again.");
     return;
   }
 
@@ -99,6 +103,10 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
     },
   };
 
-  const razorpay = new window.Razorpay(options);
-  razorpay.open();
+  try {
+    const razorpay = new window.Razorpay(options);
+    razorpay.open();
+  } catch (err) {
+    fail(err?.message || "Could not open the checkout window. Please try again.");
+  }
 };

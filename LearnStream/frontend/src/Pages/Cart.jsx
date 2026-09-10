@@ -8,6 +8,7 @@ import { displayRazorpay } from "./displayRazorpay";
 const Cart = () => {
   const [cartItems, setCartItems] = useState([]);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState(null);
   const {auth,setAuthContext} = useContext(AuthContext);
   const token = auth?.accessToken
   const navigate=useNavigate();
@@ -111,10 +112,19 @@ const Cart = () => {
             <span>Total:</span>
             <span className="text-green-700">₹{total}</span>
           </div>
+          {checkoutError && (
+            <div className="flex items-start justify-between gap-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+              <span>{checkoutError}</span>
+              <button onClick={() => setCheckoutError(null)} className="font-bold leading-none" aria-label="Dismiss">
+                ✕
+              </button>
+            </div>
+          )}
           <button
             className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
             disabled={cartItems.length === 0 || checkoutLoading}
             onClick={() => {
+              setCheckoutError(null);
               setCheckoutLoading(true);
               displayRazorpay({
                 course_ids,
@@ -122,6 +132,7 @@ const Cart = () => {
                 setCartItems,
                 studentName: auth?.name,
                 onSettled: () => setCheckoutLoading(false),
+                onError: setCheckoutError,
               });
             }}
           >

@@ -166,6 +166,7 @@ Replace the loose `flex gap-4 items-center` row with an explicit grid so the thu
   - "Learn More" must go to a real anchor/section (e.g. the courses list below, `#courses`) instead of `href="#"`.
 - **Course count stat**: add a stat row/badge near the hero or directly above the course grid, e.g. "500+ courses across 8 categories". Data source: reuse `GET /courses/getallCourses` (already exists, `backend/src/routes/CourseRoutes/courses.routes.js:31`) and take `.length` of the result — no new backend work required for a first pass. If the course catalog grows large enough that fetching the full list just to count it becomes wasteful, add a lightweight `GET /courses/count` endpoint that returns `{ count }` via `Model.countDocuments()` instead.
 - Apply the grid pattern from §4.1 to the course card list for consistent responsive columns.
+- **Category bar and course grid restyle (confirmed still needed by manual testing, `UI_AUDIT.md` §10.3)**: `CategoryBar.jsx` has no active-state indicator for the selected category — add one (e.g. a filled background/underline on the currently-selected pill). `CourseComp.jsx` needs its hardcoded 5-star rating block removed (§6.1) alongside the grid restyle, since both live in the same component.
 
 ---
 
@@ -282,8 +283,8 @@ All six must be registered in `frontend/src/main.jsx`'s router and linked from t
 ## 10. Cleanup (do alongside, not after)
 
 - Delete `frontend/src/App.jsx` (dead, broken imports — not the real entry point; `main.jsx` is).
-- Delete `components/login-form.jsx`, `components/Signup.jsx`, and `components/Checkout.jsx` after confirming zero imports (superseded by `Pages/Login-students.jsx` / `Pages/Signup-students.jsx` / `Pages/Login-teacher.jsx` / `Pages/Signup-Teacher.jsx`; `Checkout.jsx` is dead and broken — see §8.5).
-- Delete `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx` and their route entries in `main.jsx:29-30` — confirmed unreachable from any UI path; `Pages/login.jsx` is the live combined login page (§8.6 in `UI_AUDIT.md`).
+- **`components/Signup.jsx` must NOT be deleted** — it's the live form behind `/signup/student` and `/signup/teacher` (corrected in `UI_AUDIT.md` §2.7 after manual testing caught this). `components/Checkout.jsx` is already deleted (dead, broken — see §8.5).
+- Delete `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`, and — once those three are gone — `components/login-form.jsx` (only ever imported by `Login-students.jsx`/`Login-teacher.jsx`), plus their route entries in `main.jsx:29-30`. Confirmed unreachable from any UI path; `Pages/login.jsx` is the live combined login page (§8.6 in `UI_AUDIT.md`).
 - Remove `mdb-react-ui-kit` and `@mui/icons-material` from `frontend/package.json` once §2's migration is complete and nothing references them.
 
 ---
