@@ -10,36 +10,19 @@ async function loadScript(src) {
     document.body.appendChild(script);
   });
 }
-export const displayRazorpay = async ({ course_ids, amount, token, setCartItems }) => {
+export const displayRazorpay = async ({ course_ids, token, setCartItems, studentName, onSettled }) => {
   const res = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
   if (!res) {
     alert("Razorpay SDK failed to load.");
+    onSettled?.();
     return;
   }
 
-  const enrollStudent = async (course_ids) => {
-    try {
-      const response = await axios.post(
-        `/courses/enroll`,
-        { course_ids },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          withCredentials: true,
-        }
-      );
-      if (response.data.success) {
-        console.log(`✅ Enrollment successful for:`, course_ids);
-      }
-    } catch (error) {
-      console.error("❌ Enrollment error:", error);
-    }
-  };
-
   const handlePaymentSuccess = async (response) => {
     try {
+      // Verifying the payment also enrolls the student and clears the
+      // purchased items from their cart server-side (Payment.controller.js
+      // `verifyPayment`) — there is no separate enroll call to make here.
       const verifyRes = await axios.post(
         "/payment/verify",
         {
@@ -57,37 +40,43 @@ export const displayRazorpay = async ({ course_ids, amount, token, setCartItems 
       );
 
       if (verifyRes.data.success) {
-        await enrollStudent(course_ids);
         if (typeof setCartItems === "function") {
-          setCartItems([]); // ✅ now will work safely
-        } else {
-          console.error("❌ setCartItems is not a function:", setCartItems);
+          setCartItems((prev) => prev.filter((item) => !course_ids.includes(item._id)));
         }
       } else {
-        alert("❌ Payment verification failed.");
+        alert("Payment verification failed. If you were charged, contact support.");
       }
     } catch (err) {
       console.error("Verification Error:", err);
-      alert("Payment verification failed.");
+      alert("Payment verification failed. If you were charged, contact support.");
+    } finally {
+      onSettled?.();
     }
   };
 
-  const { data } = await axios.post(
-    "/payment/create-order",
-    { course_ids, amount },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      withCredentials: true,
-    }
-  );
-
-  const order = data.data;
+  let order;
+  try {
+    const { data } = await axios.post(
+      "/payment/create-order",
+      { course_ids },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        withCredentials: true,
+      }
+    );
+    order = data.data;
+  } catch (err) {
+    console.error("Order creation error:", err);
+    alert("Could not start checkout. Please try again.");
+    onSettled?.();
+    return;
+  }
 
   const options = {
-    key: "rzp_test_yLlU5Vi0wMY8hC",
+    key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_yLlU5Vi0wMY8hC",
     amount: order.amount,
     currency: order.currency,
     name: "LearnStream",
@@ -97,15 +86,16 @@ export const displayRazorpay = async ({ course_ids, amount, token, setCartItems 
       // Wrap to preserve the context
       handlePaymentSuccess(response);
     },
-    prefill: {
-      email: "test@example.com",
-      contact: "9999999999",
-    },
+    prefill: studentName ? { name: studentName } : undefined,
     notes: {
       course_ids: course_ids.join(","),
     },
     theme: {
       color: "#3399cc",
+    },
+    modal: {
+      // User closed the checkout popup without paying — release the button.
+      ondismiss: () => onSettled?.(),
     },
   };
 

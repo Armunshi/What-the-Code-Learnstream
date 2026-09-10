@@ -7,6 +7,7 @@ import { displayRazorpay } from "./displayRazorpay";
 
 const Cart = () => {
   const [cartItems, setCartItems] = useState([]);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const {auth,setAuthContext} = useContext(AuthContext);
   const token = auth?.accessToken
   const navigate=useNavigate();
@@ -111,13 +112,20 @@ const Cart = () => {
             <span className="text-green-700">₹{total}</span>
           </div>
           <button
-            className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold"
-            disabled={cartItems.length === 0} onClick={() => {
-              console.log("🚀 setCartItems being passed to Razorpay:", setCartItems);
-              displayRazorpay({ course_ids, amount: total, token ,setCartItems})
-          }}
+            className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={cartItems.length === 0 || checkoutLoading}
+            onClick={() => {
+              setCheckoutLoading(true);
+              displayRazorpay({
+                course_ids,
+                token,
+                setCartItems,
+                studentName: auth?.name,
+                onSettled: () => setCheckoutLoading(false),
+              });
+            }}
           >
-            Proceed to Checkout
+            {checkoutLoading ? "Processing…" : "Proceed to Checkout"}
           </button>
         </div>
 

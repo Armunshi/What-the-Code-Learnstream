@@ -182,38 +182,7 @@ const enrollMultipleCourses = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'course_ids must be a non-empty array');
   }
 
-  const student = await UserStudent.findById(student_id);
-  if (!student) {
-    throw new ApiError(404, 'Student not found');
-  }
-
-  const results = [];
-
-  for (const course_id of course_ids) {
-    const course = await Courses.findById(course_id);
-    if (!course) {
-      results.push({ course_id, status: "Course not found" });
-      continue;
-    }
-
-    const alreadyEnrolled = student.Courses.includes(course_id);
-
-    if (alreadyEnrolled) {
-      results.push({ course_id, status: "Already enrolled" });
-      continue;
-    }
-
-    // Enroll the student
-    await Courses.findByIdAndUpdate(course_id, {
-      $push: { enrolledStudents: student_id }
-    });
-
-    await UserStudent.findByIdAndUpdate(student_id, {
-      $push: { Courses: course_id }
-    });
-
-    results.push({ course_id, status: "Enrolled" });
-  }
+  const results = await enrollStudentInCourses(student_id, course_ids);
 
   return res.status(200).json(
     new ApiResponse(200, results, "Enrollment processed")

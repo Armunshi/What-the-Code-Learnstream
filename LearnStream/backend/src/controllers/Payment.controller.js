@@ -4,8 +4,10 @@ import Razorpay from "razorpay";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Order } from "../models/Orders.js";
 import { Courses } from "../models/Course/courses.js";
+import { Cart } from "../models/cart.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import { enrollStudentInCourses } from "../utils/enrollment.js";
 import crypto from "crypto";
 
 const instance = new Razorpay({
@@ -99,8 +101,19 @@ const verifyPayment = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Order not found");
   }
 
-  console.log("hello",order); //check
-  return res.status(200).json(new ApiResponse(200, order, "Payment verified and order updated"));
+  // Enroll the student and clear the purchased items from their cart in the
+  // same request — a verified payment must never be left "paid but not
+  // enrolled" waiting on a second, separately-failable client call.
+  const enrollmentResults = await enrollStudentInCourses(order.user_id, order.course_ids);
+
+  await Cart.findOneAndUpdate(
+    { user: order.user_id },
+    { $pull: { items: { course: { $in: order.course_ids } } } }
+  );
+
+  return res.status(200).json(
+    new ApiResponse(200, { order, enrollmentResults }, "Payment verified and order updated")
+  );
 });
 
 export {
