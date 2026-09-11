@@ -242,6 +242,8 @@ Module 2 correctly fixed the *frontend* half of "paid but not enrolled" by makin
 
 **Fix**: guard on `order.status !== "paid"` before doing work, fetch and compare the payment amount/status via the Razorpay API, and assert the order belongs to the caller.
 
+**Confirmed empirically, 2026-09-12**: the e2e Playwright suite's fixture setup (`LearnStream/e2e/global-setup.ts`) enrolls its test student by computing `HMAC-SHA256(order_id|payment_id, RAZORPAY_KEY_SECRET)` for a **synthetic, never-real** `payment_id` and posting straight to `/payment/verify` — no Razorpay checkout UI, no real payment, ever. It works every time. This doesn't lower the severity assessed above — computing that HMAC requires `RAZORPAY_KEY_SECRET`, which only the server holds, so this isn't a bypass an outside attacker can reproduce without that secret. What it does confirm concretely is the underlying gap itself: the code path genuinely never asks Razorpay whether the payment happened, it only checks that whoever called `/payment/verify` could produce the right hash. That matters more than it might otherwise because `RAZORPAY_KEY_SECRET` is exactly the kind of value §1.4 already found being logged in plaintext — a leak there, combined with this gap, is a real path to free enrollment, not just a theoretical one.
+
 ### 2.10 Uploads: original filenames, no size limit, publicly served [READ] / [RISK]
 
 Three compounding issues in `middleware/multer.middleware.js` and `app.js`:
@@ -396,7 +398,9 @@ No `helmet` (security headers), no rate limiting on `/login` / `/signup` / `/ref
 
 ### 4.8 Secrets hygiene — one thing to verify
 
-`backend/.env` is correctly **untracked and gitignored** — good. However, a `LearnStream/frontend/.env` **does appear in git history** (commits `c3e9f1a`, later removed in `14480ac`). Frontend env files normally hold only publishable values (`VITE_RAZORPAY_KEY_ID` is a public key by design), so this is likely benign — but **confirm what that file contained**, since history removal requires a rewrite, not just a delete.
+`backend/.env` is correctly **untracked and gitignored** — good, and confirmed (2026-09-12) it has **never** been committed (`git log --diff-filter=A` on the file returns nothing). `LearnStream/frontend/.env` does appear in git history (added `c3e9f1a`, removed `14480ac`), but its full history is **0 lines ever added** (`git log -p` on the file shows an empty blob at every revision — it was tracked-but-empty, then deleted). **Resolved**: no secrets of any kind were ever committed to this repo's history; no history rewrite needed.
+
+**Confirmed, Cloudinary public-read (2026-09-12)**: `GET /v1_1/{cloud}/resources/image` via the Admin API shows `type: "upload"` (Cloudinary's standard public-delivery type, not `authenticated`/`private`) on every sampled asset — matches §1.1's live download proof. **Not determinable**: whether any leaked `public_id`s have actually been scraped/accessed by a third party — Cloudinary's Admin API on this plan doesn't expose asset-level access/download logs, so this can't be checked after the fact. Treat every already-leaked id as compromised going forward rather than trying to confirm actual misuse.
 
 ---
 
@@ -493,9 +497,10 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 ### Module B0 — Verify production exposure (do first, before anything else)
 `.env` shows this backend is deployed at `learnstream.onrender.com`, actual API host `whathecode-learnstream.onrender.com`.
 - [x] Confirm whether deployed prod serves `GET /courses/:id/modules` unauthenticated (§1.1) — **yes, confirmed 2026-09-11**. Live incident, not a backlog item.
-- [ ] Rotate `ACCESS_TOKEN_SECRET` / `REFRESH_TOKEN_SECRET` — §1.4 means tokens have been written to logs for the lifetime of the deployment. Rotation invalidates anything already captured. **Local `.env` currently holds placeholder-looking values (`chai-aur-code` / `chai-aur-backend`) — confirm whether Render's env vars match or differ before rotating either one, since only the value actually running in prod needs invalidating.**
-- [ ] Check whether Cloudinary assets are public-read and whether any `public_id`s have been scraped.
-- [ ] Confirm what the historical `frontend/.env` contained (§4.8).
+- [x] Local dev `ACCESS_TOKEN_SECRET`/`REFRESH_TOKEN_SECRET` rotated 2026-09-12 (were the tutorial-default `chai-aur-code`/`chai-aur-backend`).
+- [ ] **Still open — needs your Render dashboard access, cannot be done from here**: rotate `ACCESS_TOKEN_SECRET`/`REFRESH_TOKEN_SECRET` on the **production** service. §1.4 means tokens have been written to logs for the lifetime of the deployment; rotation invalidates anything already captured but also logs out every current user. New values generated and handed off 2026-09-11; confirm once applied so this can be checked off.
+- [x] Cloudinary assets confirmed public-read (`type: "upload"` via Admin API, 2026-09-12) — matches §1.1. Scrape history not determinable (no access logs on this plan) — see §4.8.
+- [x] Historical `frontend/.env` confirmed benign (2026-09-12) — it was tracked-but-empty in git history, then deleted; zero secrets ever committed anywhere in this repo. See §4.8.
 
 ### Module B1 — P0 containment
 - [ ] Auth + enrollment guard on `getCourseModules`; stop returning `public_id` to non-entitled callers (§1.1).
@@ -510,6 +515,7 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 ### Module B2 — Error handling & contracts
 - [ ] Add `errorHandler.js` and register it last in `app.js` (§2.1).
 - [ ] Fix all 16 statusless `ApiError` calls (§2.2); make the constructor reject non-numeric status codes.
+- [ ] **Fix `auth.routes.js`'s `refreshAccessToken` masking every failure as 400 instead of the real status (§2.11)** — this was missing its own checklist line despite being in the P1 summary; easy to lose track of otherwise. Its `catch` block does `throw new ApiError(400, ...)` unconditionally, discarding whatever real status the thrown error actually carried (401 for "no token"/"invalid token"/"mismatch", etc.). **Live regression test for this exists and is currently red on purpose**: `LearnStream/e2e/tests/auth-token-refresh.spec.ts`'s "refresh-token endpoint rejects a missing/cleared cookie with 401" — fixing this should flip it green with no test changes needed.
 - [ ] Fix `getCourseById`'s `res.json(200, …)` (§3.1).
 - [ ] Normalise `markLectureCompleted`/`getLecturesCompleted` onto `ApiResponse` — **coordinate with the frontend**, `LectureAssig.jsx:29` depends on the current raw shape (§3.11).
 - [ ] Unblock the frontend: with B2 done, `err.response.data.message` finally carries real text everywhere.
@@ -556,3 +562,73 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 **Two suspected bugs were tested and cleared** (§6.4) — they are not bugs, don't re-investigate.
 
 **Not verified against production** — §7 Module B0 lists exactly what to check there, including secret rotation, which §1.4 makes non-optional.
+
+---
+
+## 9. Test plan
+
+**Status: planning only — no test code has been written yet.** This section is being reviewed before any test file is created, per explicit instruction. There is currently zero test infrastructure (`"test": "echo \"Error: no test specified\" && exit 1"`, no test runner in `dependencies`) — this is a greenfield setup, not an extension of something existing.
+
+**Scope**: every controller already in the codebase (8 files, ~40 handlers — inventoried below) gets coverage, not just B1's fixes going forward. New B1 code gets its tests written alongside the fix that introduces it, in the same commit; the pre-existing untested surface is worked through as its own phased backlog (T1-T4 below), in the same priority order as the B-modules so testing and hardening land on the same files together instead of two separate passes.
+
+### 9.1 Tooling
+
+| Concern | Choice | Why |
+|---|---|---|
+| Test runner | **Vitest** | ESM-native (this project is `"type": "module"` throughout — Jest's ESM support is still friction-prone), Jest-compatible API/mocking so it reads familiar, fast watch mode. |
+| HTTP integration | **supertest** | `app.js` already exports `{ app }` separately from `index.js`'s `app.listen(...)` — supertest can drive the real Express app in-process, no port binding, no separate server lifecycle to manage in tests. |
+| Test database | **mongodb-memory-server** | Spins up a real, ephemeral MongoDB per test run — integration tests exercise actual Mongoose schema validation, indexes, and query behavior instead of a hand-rolled mock, with zero risk of touching the real Atlas cluster and zero manual cleanup. |
+| External services | **`vi.mock()`** on the `cloudinary` and `razorpay` packages | Tests must never call real Cloudinary/Razorpay APIs — cost, flakiness, rate limits, and it'd otherwise require real credentials in CI. Mock at the SDK boundary so controller logic (what gets sent, how responses/errors are handled) is still exercised. |
+| JWT | Real `jsonwebtoken`, fixed secret from a `.env.test` | Fast and deterministic; no reason to mock a pure function. |
+| Coverage | `@vitest/coverage-v8` (optional, nice-to-have) | Not a gate initially — this codebase has zero tests today, so "some coverage" is already the win; a coverage threshold can be added once the backlog below is cleared. |
+
+New `package.json` scripts: `"test": "vitest run"`, `"test:watch": "vitest"`. A `src/tests/setup.js` (or `tests/` at the backend root, mirroring `src/`) wires `mongodb-memory-server` up/down in `beforeAll`/`afterAll` and resets collections in `afterEach`.
+
+**Unit vs. integration split**: most of these controllers are thin wrappers around Mongoose calls with a handful of real branches (auth, ownership, amount/signature math) — mocking every Mongoose call to "unit test" them would mostly test the mocks. So coverage leans **integration-heavy** (supertest + in-memory Mongo, exercising the real route including its auth middleware), with **unit tests reserved for pure logic**: `utils/verifyOwnership.js`, `utils/enrollment.js`'s branching, `ApiError`/`ApiResponse`/`asyncHandler`, the Razorpay signature check and amount calculation in `Payment.controller.js`, and each auth middleware's token-branch logic.
+
+### 9.2 Regression tests mapped to findings already in this document
+
+Every P0/P1 finding above that was fixed (or will be, in B1-B4) gets a test asserting the *old* broken behavior can't come back — this is the highest-value tranche, since each one is a single assertion that would have caught a real, already-shipped bug:
+
+- §1.1 unauthenticated `getCourseModules` — assert 401 for no token, 403 for a non-enrolled/non-owner caller, 200 with modules for enrolled student or owning teacher (once B1 lands the guard).
+- §1.2 cross-teacher PII leak — teacher B hitting teacher A's `getStudentsAndUploadedAssignments`/`getEnrolledStudents` must 403 (once B1 lands `assertCourseOwnership` there).
+- §1.3 `/courses/enroll` — must not 500 (regression test for the missing-import crash).
+- §1.4 credential logging — a log-output assertion (or just: this is closed by deletion, so no test needed once the `console.log` lines are gone — covered implicitly).
+- §1.5 logout — after logout, read the student/teacher document directly and assert `refreshToken` is actually cleared (not just that the response is 200).
+- §2.2 statusless `ApiError`s — `ApiError` constructor test: rejects/normalizes a non-numeric status code.
+- §2.3 cascade deletes — deleting a course must leave no orphaned `Modules`/`Lectures`/`Assignments` documents referencing it.
+- §2.6 assignment deadlines — a submission after the *server-recorded* deadline is marked late even if the client claims otherwise.
+- §2.7 float paise — `createOrder`'s amount for prices that produce floating-point remainders (e.g. three courses at odd prices) must be a clean integer.
+- §2.9 payment idempotency — calling `verifyPayment` twice with the same valid signature must not double-enroll or double-process (this is also a B4 prerequisite, tested as it's built).
+- §3.1 `getCourseById` — must return the course document, not the literal number `200`.
+- §3.6 `createAssignment` duplicate-title check — query against the field that actually exists on the schema.
+
+### 9.3 File-by-file backlog (pre-existing code, phased)
+
+Phased in the same order as the B-modules so a file's tests land alongside its fix, not as a separate pass:
+
+**T1 — Auth (do first: every other integration test needs the ability to log a test user in)**
+- `UserStudent.controller.js` (`registerUserStudent`, `loginUserStudent`, `logoutUserStudent`, `getCurrentStudent`) — duplicate email/name rejection, wrong-password rejection, cookie + token shape on success, logout actually clears `refreshToken` (§1.5).
+- `UserTeacher.controller.js` (`registerUser`, `loginUser`, `logoutUser`, `getCurrentTeacher`) — same shape, plus a regression test for the historical signup crash (already fixed, but easy to reintroduce).
+- `auth.routes.js`'s `refreshAccessToken` — valid refresh succeeds and rotates tokens; invalid/expired/revoked (post-logout) refresh is rejected with the correct status (§2.11 — currently masks 401 as 400, worth asserting the *correct* code once fixed).
+- `authstudent.middleware.js`, `authteacher.middleware.js`, `authcombined.middleware.js` — missing token, malformed token, expired token, wrong-secret token (simulates a pre-rotation token, ties directly to tonight's live incident) all rejected; valid token attaches `req.student`/`req.teacher`.
+
+**T2 — Modules / Lectures / Assignments (in flight now as part of B1)**
+- `Modules.controller.js`, `Lecture.controller.js`, `Assignment.controller.js` — ownership guard on every mutation (teacher B 403 on teacher A's course, matches §1.1/§1.2's fix), `getCourseModules` auth+enrollment gate once B1 lands, `createAssignment`'s duplicate-title field bug (§3.6), `deleteAssignment`'s unawaited-deletion crash risk (§2.5).
+
+**T3 — Payment (highest real-money risk; confirmed working live tonight, needs regression coverage before it's touched again for B4)**
+- `Payment.controller.js` — `createOrder`'s server-side amount derivation (rejects a tampered client amount, matches the Module 1 fix), integer-paise rounding (§2.7), `verifyPayment`'s signature check (valid/invalid/tampered), idempotency once B4 adds it (§2.9), enrollment + cart-clear side effects on success.
+
+**T4 — Course catalog, cart, remaining edges**
+- `Course.controller.js` — `getCourseById` (§3.1 regression), `getCoursesByCategory`, `enrollMultipleCourses`, `checkEnrollment`, `CourseProgress` calculation once B3's fixes land.
+- `cart.controller.js` — add/remove/get, empty-cart response (§3.5 — currently 404s, assert the corrected behavior once fixed).
+- `utils/verifyOwnership.js`, `utils/enrollment.js` — direct unit tests for their branches (already-enrolled skip, missing course, ownership mismatch).
+
+### 9.4 Execution order for this session
+
+1. Set up tooling (`vitest`, `supertest`, `mongodb-memory-server` as devDependencies; `tests/setup.js`; `package.json` scripts). No feature code touched.
+2. Continue B1 (auth-guard `getCourseModules`, ownership checks, logout fix, `/courses/enroll`) — write each fix's test in the same pass, per T1/T2 above.
+3. Backfill T1 (auth) tests for existing code not touched by B1, since everything downstream depends on it.
+4. Continue into B2 (error handling) with tests, then work through T3/T4 as B3/B4 are reached — keeping "fix a module" and "test that module" as one motion rather than a separate sweep at the end.
+
+**Not doing**: a coverage-percentage target, snapshot testing, or end-to-end browser tests (Cypress/Playwright) — out of scope here, this section is backend controller/integration coverage only.

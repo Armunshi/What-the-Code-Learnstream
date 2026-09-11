@@ -304,7 +304,7 @@ Manual testing of the teacher workflow surfaced three real issues. This is Modul
 14. Re-lay-out the navbar and cart with an explicit grid/flex system (§3, detailed in `REQUIREMENTS.md` §4).
 15. Add a course-count stat to the landing page (§5).
 16. Replace hardcoded 5-star ratings with either a real review system or no rating UI at all (§6.1).
-17. Build real watch-percentage tracking for lecture completion (§6.3).
+17. Build real watch-percentage tracking for lecture completion (§6.3) — removing the premature "mark complete on click" call as part of this also fixes the confirmed label/checkbox double-fire bug found via the e2e suite (§12.3): the checkbox is nested inside a `<label>` inside the Card's own `onClick`, so one physical click currently fires the completion POST twice.
 18. Fix the dead "Add lecture-assignment" button and add a teacher grading/feedback mechanism (§6.5).
 19. Remove the live Udemy competitor content from `testimonials.jsx`/`udemycomponent.jsx` (§8.9).
 20. Add server-side password strength validation and fix the Signup success/loading-state UX bugs (§8.3, §8.4).
@@ -318,3 +318,59 @@ Manual testing of the teacher workflow surfaced three real issues. This is Modul
 
 **Cleanup (P3):**
 26. Delete dead code: `App.jsx`, `components/Checkout.jsx` (already done), `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`, and — only once those three are gone — `components/login-form.jsx`; remove unused `mdb-react-ui-kit`/`@mui/icons-material` dependencies. **`components/Signup.jsx` is live and must not be deleted** (§2.7 correction).
+
+---
+
+## 12. E2E test plan (Playwright) — built and run, 2026-09-12
+
+Companion to `BACKEND_AUDIT.md §9`'s backend test plan (Vitest + supertest + mongodb-memory-server) — same spirit, different layer. Lives at `LearnStream/e2e/`, its own workspace sibling to `frontend/` and `backend/`.
+
+### 12.1 Tooling
+
+| Concern | Choice | Why |
+|---|---|---|
+| Test runner | **Playwright + TypeScript** | First-class network/console interception APIs; TS matters here specifically because the suite's value is a structured log — a typo in a field name would silently corrupt it. |
+| Test database | **mongodb-memory-server** | Genuinely isolated, ephemeral MongoDB — `global-setup.ts` starts it and spawns the real backend against it on `:8000` (same port your manual dev backend uses — stop that first), `global-teardown.ts` tears both down. Zero manual provisioning. |
+| Fixture data | Seeded via direct API calls in `global-setup.ts`: a teacher, two courses (two categories, so the category bar has something to switch between), a module with two lectures, a student. Enrollment is done by **forging the Razorpay HMAC signature** `verifyPayment` checks (`Payment.controller.js` never actually calls Razorpay's API to confirm a payment happened — a real, separate finding, worth its own `BACKEND_AUDIT.md §2.9` follow-up) rather than driving the real checkout UI — faster and deterministic, since checkout itself isn't one of the 4 flows being tested. **This breaks if §2.9 is ever fixed properly** — would need to switch to a mocked Razorpay API or the real checkout UI at that point. |
+| Auth in tests | **Fresh login via the real UI at the start of every authenticated test** (`lib/selectors.ts`'s `loginAs`), not a reused `storageState` snapshot. Discovered why during implementation: `AuthProvider.jsx` refreshes on every mount and `auth.routes.js`'s `refreshAccessToken` rotates the stored refresh token on every successful call, so a static pre-captured cookie only survives being used once — every subsequent fresh browser context loaded from the same snapshot presents a now-stale token and fails. |
+| No mocking layer | Deliberate — this suite exists to catch real integration bugs against real dev servers, unlike the backend Vitest suite's `vi.mock()`-everything approach. |
+
+### 12.2 Scope
+
+The 4 flows from the original ask: Authentication/Token Refresh, Navigating Course Lists, Viewing Course Details, Marking a Lecture Complete. **Not doing yet**: teacher course-authoring UI, assignment submission/grading, cart, profile pages.
+
+### 12.3 Real findings from actually running it
+
+**New bug, confirmed reproducible on every single run**: `LectureAssig.jsx`'s lecture `Card` has its `onClick={() => handleSelectLecture(lecture)}` wrapping a `<label>` that itself wraps the completion `<input type="checkbox">`. Clicking anywhere inside a `<label>` that contains a form control is standard browser behavior that also forwards a synthetic click to that control — and that forwarded click **also bubbles up to the Card's `onClick`**. So one physical user click fires `handleSelectLecture` twice, sending two identical `POST .../complete` requests every time, not just under rapid double-clicking. This compounds with the pre-existing missing in-flight guard (no debounce, only an async `completedLectures[lecture._id]` state check): a genuine rapid double-click can produce **up to four** POSTs for what the user experiences as two clicks. Confirmed via `e2e/tests/lecture-completion.spec.ts` — both the single-click and rapid-double-click tests are red by design, documenting this exact behavior. **Fix**: don't nest the checkbox inside the same clickable element as the Card's `onClick` — move it outside the `<label>`, or stop making the whole Card clickable and use a dedicated button instead.
+
+**New bug, confirmed**: `AuthProvider.jsx` calls `fetchNewAccessToken()` unconditionally on every single page mount — including a fully anonymous visitor who has never logged in and has no refresh cookie at all. Confirmed live: loading the Home page in a brand-new browser context still fires a failing `POST /auth/refresh-Token` (masked as 400 per `BACKEND_AUDIT.md §2.11`) and logs `"Error refreshing access token"` to the console. Harmless functionally (the app still renders correctly for guests) but noisy — every anonymous page load makes a doomed network call and logs an error. **Fix**: only attempt the refresh if there's some hint a session might exist (e.g., check for the presence of `userMeta` in localStorage first).
+
+**Fixed directly during this work** (trivial, low-risk): `components/Footer.jsx` used raw SVG attribute names `fill-rule`/`clip-rule` instead of React's `fillRule`/`clipRule`, producing a React console warning on every single page load (Footer renders in the shared `Layout`). Renamed both attributes across all four icons in the file.
+
+**Confirmed, already documented**: `cart.controller.js`'s `getCart` 404s for any student who has never added anything to their cart yet (`BACKEND_AUDIT.md §3.5`, "Empty cart returns 404") — `AddToCartBtn.jsx` renders on every course-detail page and hits this on mount for a fresh student. Not a new finding, but empirically confirmed live via the fixture student.
+
+**Test-suite-only quirks worth knowing, not app bugs**: React 18 StrictMode double-invokes `AuthProvider`'s mount effect in dev, which made an early version of the token-refresh-retry test flaky (fixed by registering the `page.route()` interceptor before the initial navigation instead of around a `page.reload()`, and relaxing exact-count assertions on refresh-call counts to `>=` checks).
+
+### 12.4 Spec inventory
+
+- `tests/auth-token-refresh.spec.ts` — login (success/failure), refresh with a valid cookie, refresh with a missing cookie (asserts the *correct* 401 — currently red per `BACKEND_AUDIT.md §2.11`'s masked-400 bug, kept visible rather than skipped), and a forced-401-triggers-retry test against the axios interceptor.
+- `tests/course-list-navigation.spec.ts` — Home page catalog load, category switching, authenticated student-dashboard fetch carries the `Authorization` header.
+- `tests/course-detail-view.spec.ts` — all four on-mount calls (`modules`, course detail, `progress`, `enrolled`) succeed, "Already Enrolled" renders (proves the forged-signature fixture enrollment actually took effect server-side), module expand/collapse causes zero additional network calls.
+- `tests/lecture-completion.spec.ts` — the label/checkbox double-fire finding above (both single- and rapid-double-click cases), reload-persists-without-re-POST, no unexpected console errors.
+
+### 12.5 Duplicate/console-noise detection
+
+`lib/duplicate-detection.ts` — pure functions over the captured network log: duplicate POSTs to the same URL, GETs to the same URL within 500ms of each other (reported as a finding, not a hard failure — e.g. `Home.jsx` and `GeneralCourses.jsx` both independently call `/courses/getallCourses` on mount, a plausible acceptable inefficiency), back-to-back OPTIONS preflights to the same endpoint. `lib/console-allowlist.ts` holds the known, accepted noise patterns above (refresh-on-every-mount, the cart-404) so they don't drown out a genuinely new console error in the "no unexpected console errors" assertions.
+
+### 12.6 Running it
+
+```
+cd LearnStream/e2e
+npm install && npx playwright install chromium
+# stop your manual `npm start` in backend/ first — global-setup.ts binds :8000 itself
+npm test
+```
+
+Structured JSON output per run lands in `e2e/logs/` (gitignored) — one file per `playwright test` invocation, network + console entries per test plus a summary. `global-teardown.ts` always stops the spawned backend and in-memory MongoDB, leaving `:8000` free again afterward.
+
+**Current state**: 12 passing, 3 failing by design (the §2.11 masked-401 regression target, and the two label/checkbox double-fire findings above) — not a suite to "get to green" by loosening those three, since each documents a real, currently-unfixed bug.
