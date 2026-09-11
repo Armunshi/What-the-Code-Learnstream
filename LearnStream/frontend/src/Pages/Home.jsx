@@ -70,15 +70,14 @@ const Home = () => {
         </div>
       </section>
 
-      <div id="courses" ref={courseDiv} className="font-sans font-bold ml-4 mt scroll-mt-20">
-        Courses
-        <div>
+      <div id="courses" ref={courseDiv} className="scroll-mt-20 py-10">
+        <div className="max-w-container mx-auto px-4 md:px-8">
+          <h2 className="mb-4 text-2xl font-semibold text-gray-900">Courses</h2>
           <GeneralCourses
             setCourse_id={setCourse_id}
             ButtonName={view}
             buttonHandler={viewCourse}
-          />{" "}
-          {/* Fetches courses itself */}
+          />
         </div>
         <LearningGoals/>
           <br />

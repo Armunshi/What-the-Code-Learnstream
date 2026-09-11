@@ -59,7 +59,7 @@ const Cart = () => {
   return (
     <>
       <h1 className="text-3xl font-bold my-6 text-center">🛒 Your Cart</h1>
-      <div className="flex flex-col md:flex-row gap-6 px-4 md:px-12">
+      <div className="max-w-container mx-auto flex flex-col md:flex-row gap-6 px-4 md:px-8">
 
         {/* Left Section - Cart Items */}
         <div className="flex-1 bg-white rounded-xl shadow p-4 space-y-4">
@@ -67,16 +67,15 @@ const Cart = () => {
             <p className="text-center text-gray-500">Your cart is empty.</p>
           ) : (
             cartItems.map((item) => (
-              <div key={item._id} className="flex gap-4 items-center border-b pb-4 "  >
+              <div key={item._id} className="grid grid-cols-[96px_1fr_auto] gap-4 items-center border-b pb-4">
                 <img
-                onClick={()=> navigate(`/user/${item._id}`)}
+                  onClick={()=> navigate(`/user/${item._id}`)}
                   src={item.thumbnail}
                   alt={item.title}
-                  
                   className="w-24 h-24 object-cover rounded-lg cursor-pointer"
                 />
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold">{item.title}</h2>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold truncate">{item.title}</h2>
                   <p className="text-sm text-gray-600">Category: {item.category}</p>
                 </div>
                 <div className="text-right">
@@ -121,7 +120,7 @@ const Cart = () => {
             </div>
           )}
           <button
-            className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full mt-4 bg-brand-dark hover:bg-brand-dark/90 text-white py-2 px-4 rounded-lg font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
             disabled={cartItems.length === 0 || checkoutLoading}
             onClick={() => {
               setCheckoutError(null);

@@ -1,8 +1,10 @@
 import React, { useState, useContext, useEffect } from "react";
-import { Spinner, TextInput } from "flowbite-react";
+import { Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import AuthContext from "../contexts/AuthProvider";
 import axios from "../api/axios";
+import { Input } from "../components/ui/input";
+import { Button } from "../components/ui/button";
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -69,7 +71,7 @@ const LoginPage = () => {
             <img src="/assets/student.jpeg" alt="Student" className="w-92" />
             <h2 className="text-2xl font-semibold text-gray-800 mb-2">Student Login</h2>
             <p className="text-sm text-gray-500">
-              Not a member yet? <Link to="/signup/student" className="text-green-500 hover:underline">Sign up!</Link>
+              Not a member yet? <Link to="/signup/student" className="text-brand-dark hover:underline">Sign up!</Link>
             </p>
           </div>
           <form
@@ -79,7 +81,7 @@ const LoginPage = () => {
               handleLogin("student", student, setStudent);
             }}
           >
-            <TextInput
+            <Input
               type="email"
               placeholder="Email"
               value={student.email}
@@ -87,7 +89,7 @@ const LoginPage = () => {
               className="w-full mt-4"
               required
             />
-            <TextInput
+            <Input
               type="password"
               placeholder="Password"
               value={student.password}
@@ -101,13 +103,13 @@ const LoginPage = () => {
               </label>
               <a href="#" className="hover:underline">Forgot Password?</a>
             </div>
-            <button
+            <Button
               type="submit"
-              className="w-full bg-green-500 hover:bg-green-600 text-white py-3 mt-4 rounded"
+              className="w-full bg-brand-dark hover:bg-brand-dark/90 py-3 mt-4"
               disabled={student.loading}
             >
-              {student.loading ? <Spinner size="sm" /> : "Login"}
-            </button>
+              {student.loading ? <Loader2 size={16} className="animate-spin" /> : "Login"}
+            </Button>
             {student.error && <p className="text-red-500 text-center mt-2">{student.error}</p>}
           </form>
         </div>
@@ -118,7 +120,7 @@ const LoginPage = () => {
             <img src="/assets/teacher.jpeg" alt="Teacher" className="w-92" />
             <h2 className="text-2xl font-semibold text-gray-800 mb-2">Teacher Login</h2>
             <p className="text-sm text-gray-500">
-              Not a member yet? <Link to="/signup/teacher" className="text-green-500 hover:underline">Sign up!</Link>
+              Not a member yet? <Link to="/signup/teacher" className="text-brand-dark hover:underline">Sign up!</Link>
             </p>
           </div>
           <form
@@ -128,7 +130,7 @@ const LoginPage = () => {
               handleLogin("teacher", teacher, setTeacher);
             }}
           >
-            <TextInput
+            <Input
               type="email"
               placeholder="Email"
               value={teacher.email}
@@ -136,7 +138,7 @@ const LoginPage = () => {
               className="w-full mt-4"
               required
             />
-            <TextInput
+            <Input
               type="password"
               placeholder="Password"
               value={teacher.password}
@@ -150,13 +152,13 @@ const LoginPage = () => {
               </label>
               <a href="#" className="hover:underline">Forgot Password?</a>
             </div>
-            <button
+            <Button
               type="submit"
-              className="w-full bg-green-500 hover:bg-green-600 text-white py-3 mt-4 rounded"
+              className="w-full bg-brand-dark hover:bg-brand-dark/90 py-3 mt-4"
               disabled={teacher.loading}
             >
-              {teacher.loading ? <Spinner size="sm" /> : "Login"}
-            </button>
+              {teacher.loading ? <Loader2 size={16} className="animate-spin" /> : "Login"}
+            </Button>
             {teacher.error && <p className="text-red-500 text-center mt-2">{teacher.error}</p>}
           </form>
         </div>

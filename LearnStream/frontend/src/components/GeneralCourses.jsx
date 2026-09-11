@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import CategoryBar from './CategoryBar'
 import CourseComp from './CourseComp'
 import axios from '../api/axios';
-const GeneralCourses = ({setCourse_id,ButtonName,buttonHandler,errMsg,setErrMsg}) => {
+const GeneralCourses = ({setCourse_id,ButtonName,buttonHandler,errMsg,setErrMsg,showCategoryBar=true,limit}) => {
     const categories = [
         "Web Development",
         "Arts and Humanities",
@@ -36,7 +36,6 @@ const GeneralCourses = ({setCourse_id,ButtonName,buttonHandler,errMsg,setErrMsg}
                     } else {
                         setErrMsg('Courses Retrieval Failed');
                     }
-                    errRef.current.focus();
               }
           }
           fetchCourses();
@@ -46,12 +45,17 @@ const GeneralCourses = ({setCourse_id,ButtonName,buttonHandler,errMsg,setErrMsg}
     setSelectedCategory(category);
   };
 
+  const displayedCourses = limit ? courses.slice(0, limit) : courses;
+
   return (
     <div>
-     
-     <CategoryBar categories={categories} onCategorySelect={handleCategoryChange} />
-      <br />
-      <CourseComp courses={courses} setCourse_id={setCourse_id} ButtonName={ButtonName} buttonHandler={buttonHandler}  errMsg={errMsg} />
+      {showCategoryBar && (
+        <>
+          <CategoryBar categories={categories} selectedCategory={selectedCategory} onCategorySelect={handleCategoryChange} />
+          <br />
+        </>
+      )}
+      <CourseComp courses={displayedCourses} setCourse_id={setCourse_id} ButtonName={ButtonName} buttonHandler={buttonHandler}  errMsg={errMsg} />
     </div>
   );
 };

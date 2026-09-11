@@ -179,7 +179,7 @@
                   Add lecture-assignment
                 </button>
               )}
-              <Modal open={open} onClose={() => setOpen(false)}>
+              <Modal open={open} onClose={() => setOpen(false)} title="Add Lecture or Assignment">
                 <LectureAssignment moduleId={module._id} />
               </Modal>
             </div>
@@ -336,7 +336,7 @@
         ):null}
 
         {/* Modal for Adding Module */}
-        <Modal open={open} onClose={() => setOpen(false)}>
+        <Modal open={open} onClose={() => setOpen(false)} title="Add Module">
           <ModuleForm />
         </Modal>
       </div>

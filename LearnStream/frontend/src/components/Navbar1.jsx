@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
-import { Avatar, Dropdown, DropdownItem } from "flowbite-react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "../api/axios";
 import { useContext } from "react";
 import AuthContext from "../contexts/AuthProvider";
 import { ShoppingCart, Menu, X } from "lucide-react";
+import { Avatar, AvatarFallback } from "./ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Button } from "./ui/button";
 
 const navLinks = [
   { to: "/", label: "Home" },
@@ -72,16 +81,18 @@ const Navbar1 = () => {
     }
   };
 
+  const initial = auth?.name?.charAt(0).toUpperCase() || "?";
+
   return (
     <nav className="border-b bg-white">
-      <div className="max-w-screen-xl mx-auto px-4 md:px-8 flex items-center justify-between h-16">
+      <div className="max-w-container mx-auto px-4 md:px-8 flex items-center justify-between h-16">
         <Link to="/" className="font-league font-[700] text-xl">
-          <span className="text-[#7ED757]">Learn</span>Stream
+          <span className="text-brand">Learn</span>Stream
         </Link>
 
         <div className="hidden md:flex items-center gap-6">
           {navLinks.map((link) => (
-            <Link key={link.to} to={link.to} className="text-sm font-medium text-gray-700 hover:text-[#588157]">
+            <Link key={link.to} to={link.to} className="text-sm font-medium text-gray-700 hover:text-brand-dark">
               {link.label}
             </Link>
           ))}
@@ -94,32 +105,37 @@ const Navbar1 = () => {
                 <Link to="/cart" className="relative p-2">
                   <ShoppingCart size={20} />
                   {cartCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-[#7ED757] text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 bg-brand text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
                       {cartCount}
                     </span>
                   )}
                 </Link>
               )}
-              <Dropdown arrowIcon inline label={<Avatar alt="User Avatar" rounded />}>
-                <Dropdown.Header>
-                  <span className="block text-sm">{auth?.name}</span>
-                </Dropdown.Header>
-                <DropdownItem onClick={handleMyCourses}>My Courses</DropdownItem>
-                <DropdownItem onClick={handleProfile}>Profile</DropdownItem>
-                <DropdownItem onClick={handleLogout}>Sign out</DropdownItem>
-              </Dropdown>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button aria-label="Account menu">
+                    <Avatar>
+                      <AvatarFallback>{initial}</AvatarFallback>
+                    </Avatar>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{auth?.name}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleMyCourses}>My Courses</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleProfile}>Profile</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleLogout}>Sign out</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : (
             <div className="hidden sm:flex items-center gap-3">
-              <Link to="/login" className="text-sm font-medium text-gray-700 hover:text-[#588157]">
+              <Link to="/login" className="text-sm font-medium text-gray-700 hover:text-brand-dark">
                 Log in
               </Link>
-              <Link
-                to="/signup/student"
-                className="rounded bg-[#588157] px-4 py-2 text-sm font-medium text-white shadow hover:bg-[#137dc7]"
-              >
-                Sign up
-              </Link>
+              <Button asChild size="sm" className="bg-brand-dark hover:bg-brand-dark/90">
+                <Link to="/signup/student">Sign up</Link>
+              </Button>
             </div>
           )}
 
@@ -152,7 +168,7 @@ const Navbar1 = () => {
               </Link>
               <Link
                 to="/signup/student"
-                className="text-sm font-medium text-[#588157]"
+                className="text-sm font-medium text-brand-dark"
                 onClick={() => setMobileOpen(false)}
               >
                 Sign up
