@@ -4,9 +4,27 @@ dotenv.config(); // 👈 load environment variables before anything else
 import express from "express"
 import cors from "cors"
 import cookieParser from "cookie-parser"
+import morgan from "morgan"
+import fs from "fs"
+import path from "path"
 const app = express()
 
+// Function format, not a format string: morgan renders an empty token as "-".
+const accessLog = (tokens, req, res) => {
+    const ms = tokens['response-time'](req, res);
+    const slow = parseFloat(ms) > 1000 ? 'SLOW ' : '';
+    return `${tokens.date(req, res, 'iso')} ${slow}${tokens.method(req, res)} ${tokens.url(req, res)} ${tokens.status(req, res) ?? '-'} ${ms ?? '-'} ms - ${tokens.res(req, res, 'content-length') ?? '-'}`;
+};
 
+// Registered first so the measured time covers body parsing, CORS, uploads and the handler.
+if (process.env.NODE_ENV === 'production') {
+    app.use(morgan('combined'))
+} else {
+    fs.mkdirSync(path.resolve('logs'), { recursive: true })
+    app.use(morgan(accessLog, {
+        stream: fs.createWriteStream(path.resolve('logs/access.log'), { flags: 'a' }),
+    }))
+}
 
 //middleware
 app.use(express.json({limit:"16kb"}))
@@ -29,10 +47,6 @@ app.use(cors({
 app.use(express.urlencoded({extended:true,limit:"16kb"}))
 app.use(express.static("public"))
 app.use(cookieParser())
-app.use((req,res,next)=>{
-    console.log(req.path,req.method)
-    next();
-})
 
 
 //Routers
@@ -49,4 +63,4 @@ app.use('/courses',CourseRouter);
 app.use('/auth',AuthRouter);
 app.use('/payment',PaymentRouter);
 
-export {app} 
+export {app}
