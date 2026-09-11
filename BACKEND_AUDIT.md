@@ -1,0 +1,558 @@
+# LearnStream — Backend Audit & Restructuring Plan
+
+Date: 2026-09-11
+Companion docs: `UI_AUDIT.md` (frontend findings), `REQUIREMENTS.md` (frontend/fullstack requirements + Module 4/6 plans)
+
+---
+
+## 0. Scope, method, and how to read this
+
+**Scope**: `LearnStream/backend/` in full — all 44 files, ~2,945 lines of `src/`. Every controller, route, model, middleware, and util was read end to end; nothing was sampled.
+
+**Method**: static reading, plus targeted empirical verification where a claim was load-bearing. Two hypotheses were tested and **disproved** during this audit (noted inline in §6.4) rather than reported as bugs — findings below are what survived checking.
+
+**Verification status** is marked on every finding:
+
+- **[VERIFIED]** — reproduced at runtime (live server, or an isolated harness) during this audit.
+- **[READ]** — established by direct code reading, with file:line citation, but not executed.
+- **[RISK]** — a real weakness whose exploitability depends on conditions not confirmed here. Stated as a risk, not a claim.
+
+**Severity**:
+
+| Tier | Meaning |
+|---|---|
+| **P0** | Exploitable now, or an endpoint that is broken on every call. Ship fixes first. |
+| **P1** | Data integrity, money, or auth correctness. Not immediately exploitable but actively harmful. |
+| **P2** | Wrong behaviour, bad API contracts, performance. |
+| **P3** | Hygiene, dead code, consistency. |
+
+**Important context**: `backend/.env` sets `CORS_ORIGIN=http://localhost:2000,https://learnstream.onrender.com` — so this backend is **deployed publicly**, at `https://whathecode-learnstream.onrender.com` (`frontend/src/api/axios.js:5`). The P0 findings below were verified against the local instance first; **§1.1 has since been confirmed live in production too** (2026-09-11, see the finding itself) — treat every other P0 as live until proven otherwise, not as a backlog item.
+
+---
+
+## 1. P0 — Critical
+
+### 1.1 Unauthenticated full bypass of paid course content [VERIFIED]
+
+The complete chain was executed end to end against the running backend, with **no credentials at any step**:
+
+1. `GET /courses/getallCourses` — public by design (`courses.routes.js:31`), returns every course `_id`.
+2. `GET /courses/:course_id/modules` — **has no auth middleware at all** (`modules.routes.js:10-12`: `.post(verifyJWT, addModule)` is guarded, `.get(getCourseModules)` is not). Returned **HTTP 200** unauthenticated.
+3. That handler (`Modules.controller.js:139-155`) populates lectures with `select: 'title duration freePreview public_id'` and assignments with `select: 'title deadline public_id'` — so the response contains the **Cloudinary `public_id` of every lecture video and every assignment file**.
+4. `public_id` is the only secret needed to build a direct asset URL — the frontend itself does exactly this (`LectureAssig.jsx:11,52,76` builds `https://res.cloudinary.com/dc9lboron/{video|image}/upload/<public_id>.{mp4|pdf}`).
+
+Fetching one leaked `public_id` from step 3 returned **HTTP 200, `application/pdf`, 3,109,894 bytes** — the actual course material, to an unauthenticated caller.
+
+This is not a theoretical enumeration issue: steps 1–2 hand the attacker the complete list of ids, so the whole catalogue's material is walkable by script.
+
+**Contributing factor**: the Cloudinary assets are themselves public-read (Cloudinary's default delivery). Fixing the API alone narrows the hole but does not close it while a leaked or previously-scraped `public_id` stays valid forever.
+
+**Fix**: (a) require auth + enrollment on `getCourseModules`; (b) never return `public_id` to a caller who is not enrolled or the course owner; (c) move lecture/assignment delivery to Cloudinary **signed, expiring URLs** (or `type: authenticated` uploads) so a leaked id is not a permanent key. (c) is the only one that fixes already-leaked ids.
+
+**Confirmed live in production (2026-09-11)**: `GET https://whathecode-learnstream.onrender.com/courses/678bf0eb072334a2221207fa/modules` (course id taken from the public `/courses/getallCourses` response) returned **HTTP 200** with no credentials, including a real assignment `public_id` (`za6mvtz9saqlctx1wjxt`). This is not a local-only finding — the deployed instance runs the same vulnerable code. The `public_id` was not fetched from Cloudinary in this check (confirming the API-level bypass was sufficient; step 4 of the chain above already proved the download works, against the local instance). Treat this as a live incident: prioritize §7 Module B0/B1, and rotate the token secrets (§1.4) regardless, since they've been logged for the life of the deployment.
+
+### 1.2 Any teacher can read any other course's student PII and submissions [READ]
+
+`GET /courses/:courseId/assignment/:assignmentId` → `getStudentsAndUploadedAssignments` (`assignments.routes.js:26-27`) is guarded by `verifyJWT` — *any authenticated teacher* — and the handler (`Assignment.controller.js:218-248`) performs **no course-ownership check**. It returns, for every submission: `studentName`, `studentEmail`, and `submittedAssignmentUrls`.
+
+So any teacher with a valid token can read the full roster, email addresses, and submitted files of **any assignment in any course**, by iterating assignment ids.
+
+This is the teacher-side twin of the student-side leak that Module 1 fixed in `getAssignmentById` — Module 1 closed one half and left this half open. `assertCourseOwnership` already exists (`utils/verifyOwnership.js`) and is simply not called here.
+
+**Related, same root cause**: `GET /courses/:courseId/students` → `getEnrolledStudents` (`courses.routes.js:42`, `Course.controller.js:222-234`) — also `verifyJWT` with no ownership check. Lower impact (returns ObjectIds, not names/emails) but the same gap.
+
+### 1.3 `POST /courses/enroll` throws on every call — missing import [VERIFIED by read + grep]
+
+`Course.controller.js:185` calls `enrollStudentInCourses(student_id, course_ids)`. That function lives in `utils/enrollment.js` and is **never imported into this file** — confirmed by grep: the only occurrence of the name in `Course.controller.js` is the call site itself, with no matching import line.
+
+Result: `ReferenceError: enrollStudentInCourses is not defined` → 500 on every request to the wired route `POST /courses/enroll` (`courses.routes.js:39`).
+
+This is a **regression introduced by Module 2's refactor**: the helper was extracted to `utils/enrollment.js` and correctly imported into `Payment.controller.js:10`, but the original caller was never updated. It went unnoticed because Module 2 also removed the frontend's client-side enroll call (`displayRazorpay.js`), so nothing exercises the endpoint — but it is still routed and publicly reachable by any authenticated student.
+
+**Fix**: add the import, or delete the endpoint if enrollment is now exclusively payment-driven. Prefer deleting — see §5.5.
+
+### 1.4 Access and refresh tokens are written to server logs in plaintext [READ]
+
+Long-lived bearer credentials are logged on the hot path:
+
+- `UserStudent.controller.js:106` and `:166` — `console.log("Cookies set: ", accessToken, refreshToken)` on **every registration and every login**.
+- `UserTeacher.controller.js:113` — same, on every teacher login.
+- `auth.routes.js:67-68` — `console.log("Student Refresh:", ...)` / `("Teacher Refresh:", ...)` on **every token refresh**.
+- `authstudent.middleware.js:12` — `console.log(token)` on **every authenticated student request**.
+
+A refresh token is a full account takeover primitive and these are valid for `REFRESH_TOKEN_EXPIRY`. Anyone with log access — including a hosting provider's log aggregation, or anyone who can read a deployment's log stream — has standing credentials for every user who has logged in.
+
+This is the same class as the plaintext-password logging Module 1 removed from `UserStudent.controller.js`, and arguably worse: a password log is one secret per user, a token log is a directly replayable session.
+
+**Fix**: delete all four. Then add a lint rule or log wrapper so credentials can't be logged again (§5.7).
+
+### 1.5 Logout never invalidates the session server-side [READ]
+
+`UserStudent.controller.js:194-196` and `UserTeacher.controller.js:141-143`:
+
+```js
+await UserStudent.findByIdAndUpdate(decoded._id, { $set: { refreshToken: undefined } });
+```
+
+Mongoose **strips `undefined` values from update objects** before sending them to MongoDB (this is the documented default; `$set: {x: undefined}` becomes a no-op, not a write of null). So the stored `refreshToken` is left **completely untouched**.
+
+The response clears the cookies, so the browser forgets the token — but the token itself remains valid in the database. `auth.routes.js:44` gates refresh on `user.refreshToken !== incomingRefreshToken`, so anyone who captured that refresh token (see §1.4 — it's in the logs) can keep minting fresh access tokens **after the user has logged out**, indefinitely.
+
+**Fix**: `$unset: { refreshToken: 1 }` or `$set: { refreshToken: null }`. Verify with a DB read after logout, not just a 200 response.
+
+---
+
+## 2. P1 — High
+
+### 2.1 There is no error-handling middleware — every error leaks a stack trace as HTML [VERIFIED]
+
+`app.js` (51 lines) registers routers but **never registers an error handler** (`app.use((err, req, res, next) => ...)`). `asyncHandler` (`utils/asyncHandler.js:4`) correctly forwards to `next(err)`, so every thrown `ApiError` lands in **Express's built-in default handler**.
+
+Reproduced in an isolated harness using this codebase's own `ApiError` + `asyncHandler` + its installed Express:
+
+| Thrown | HTTP | Content-Type | Body |
+|---|---|---|---|
+| `new ApiError(404, "proper not found")` | 404 | `text/html` | `<!DOCTYPE html>…<pre>Error: proper not found<br>at /home/…/backend/…` |
+| `new ApiError("course not found")` | **500** | `text/html` | `<pre>Error: Something went wrong<br>at /home/…` |
+
+Two distinct consequences:
+
+**(a) Every error response is HTML carrying a full stack trace with absolute server filesystem paths.** `.env` has `NODE_ENV=development`, which is what makes Express include the stack. This leaks internal structure to any client that triggers any error.
+
+**(b) The frontend can never read an error message.** Every frontend handler does `err.response?.data?.message` — against an HTML body that is `undefined`. This is the root cause of the generic "Something went wrong" / silent-failure symptoms logged throughout `UI_AUDIT.md`, and no amount of frontend work can fix it from that side.
+
+**Fix**: add a global error handler that serializes `ApiError` to the same `{statusCode, data, message, success}` envelope `ApiResponse` uses, includes `stack` only when `NODE_ENV !== "production"`, and maps Mongoose `ValidationError`/`CastError` and Multer errors to 400. This is the single highest-leverage change in this document.
+
+### 2.2 16 `ApiError` calls omit the status code, silently discarding the message [VERIFIED]
+
+`ApiError`'s signature is `(statusCode, message, errors, stack)`. Sixteen live call sites pass the **message as the first argument**, so the human-readable string lands in the `statusCode` slot and `message` falls back to the default `"Something went wrong"`.
+
+Verified behaviour (row 2 of the table in §2.1): status becomes **500** instead of the intended 4xx, and the intended message is **lost entirely**.
+
+Locations — `Course.controller.js`: 76, 89, 101, 114, 129, 165, 209, 212, 228, 240, 254. `Assignment.controller.js`: 56, 65, 71, 80, 137.
+
+Notably `createAssignment` (`Assignment.controller.js:56,65,71,80`) is a live, routed teacher endpoint, so a teacher hitting a validation problem gets a 500 with no explanation rather than a 400 telling them what's wrong.
+
+**Fix**: add the status codes. Then make it unrepeatable — either require `statusCode` to be a number in the constructor (throw on a string) or add a lint rule.
+
+### 2.3 Cascade-delete hooks are dead code — orphaned records accumulate on every delete [READ]
+
+`courses.js:167-181` registers `courseSchema.pre('remove', …)` and `Modules.js:30-42` registers `moduleSchema.pre('remove', …)`.
+
+`package.json` pins **`mongoose: ^8.7.3`**. `Document.prototype.remove()` was deprecated in Mongoose 6 and **removed in Mongoose 7** — `pre('remove')` document middleware no longer fires for anything in v8. Both hooks are unreachable.
+
+Worse, `deleteModule` (`Modules.controller.js:132`) carries a comment asserting the opposite:
+
+```js
+await module.deleteOne(); // Triggers the `pre` middleware for cleanup
+```
+
+`deleteOne()` is *query* middleware; the schema registers a *document* `remove` hook. Nothing fires.
+
+**Two further defects in the same hooks**, so they would not have worked even on an older Mongoose:
+
+- `courses.js:170` queries `Modules.find({ course_id: this._id })`, but the module schema's field is **`course`**, not `course_id` (`Modules.js:14-18`). The query matches nothing.
+- `deleteModule` also never `$pull`s the deleted module's id out of the parent `course.modules[]` array, leaving **dangling ObjectIds** that `getCourseModules`'s `.populate()` renders as `null` entries.
+
+**Net effect**: deleting a module orphans all its lectures and assignments in the database forever, and corrupts the parent course's `modules` array. Deleting a course orphans everything beneath it.
+
+**Fix**: replace with explicit cascade logic in a service layer (§5.3) — not more hooks. Hooks that silently don't fire are how this happened. Also needs a one-off cleanup migration for already-orphaned records.
+
+### 2.4 Cloudinary video and PDF assets are never actually deleted [READ]
+
+`utils/cloudinary.js:63-70`:
+
+```js
+const deleteMediaFromCloudinary = async (publicId) => {
+  await cloudinary.uploader.destroy(publicId);
+};
+```
+
+`uploader.destroy()` defaults to **`resource_type: "image"`**. Uploads are performed with `resource_type: "auto"` (`cloudinary.js:18`), so lecture videos are stored as `video` and assignment PDFs as `image`/`raw` depending on the file.
+
+Callers: `deleteLecture` (`Lecture.controller.js:141`) deletes a **video** — the destroy call silently no-ops and the video stays in Cloudinary, still fetchable by anyone holding its `public_id` (see §1.1). `updateLecture` (`:108`) has the same problem when replacing a video, so every replacement leaks a permanently-retained orphan.
+
+Two costs: unbounded Cloudinary storage/quota growth, and **deleted content remaining publicly retrievable**.
+
+**Fix**: store `resource_type` alongside `public_id` on the model, pass it to `destroy()`, and check the `{result: "ok" | "not found"}` response rather than ignoring it.
+
+### 2.5 `deleteAssignment` fires deletions it never waits for [READ]
+
+`Assignment.controller.js:199-201`:
+
+```js
+assignment.public_id.forEach(async (id) => {
+  await deleteMediaFromCloudinary(id);
+});
+```
+
+`forEach` ignores the returned promises. The handler proceeds to delete the DB record and respond 200 while the Cloudinary calls are still in flight. Any rejection becomes an **unhandled promise rejection** — which on Node 15+ terminates the process by default.
+
+So a Cloudinary hiccup during assignment deletion can take the whole API server down, and the assets are orphaned regardless (compounded by §2.4).
+
+**Fix**: `await Promise.allSettled(assignment.public_id.map(deleteMediaFromCloudinary))`, and log failures rather than throwing mid-delete.
+
+### 2.6 Submission lateness is decided by a client-supplied deadline [READ]
+
+`submitAssignment` (`Assignment.controller.js:127-133`):
+
+```js
+const { deadline } = req.body;
+...
+const submittedOnTime = Date.now() < deadline ? true : false;
+```
+
+The deadline is read from the **request body**, not from the `Assignment` document — which already stores an authoritative `deadline` (`courses.js:120-124`). A student can post any future timestamp and always be recorded as on time.
+
+This is precisely the class of bug Module 1 fixed for payment amounts ("never trust a client-supplied amount"); the same mistake is live here.
+
+**Second bug in the same write**: the handler pushes `submittedOnTime` into the `uploadedAssignments` subdocument (`:149-154`), but that subschema (`courses.js:125-143`) has **no `submittedOnTime` field** — it lives on the separate `checked[]` array. Mongoose strict mode silently drops it. So lateness is **never persisted at all**, tamperable or not.
+
+**Also**: no check that the assignment exists (`findByIdAndUpdate` returns null for a bad id and the result is ignored — the endpoint returns 200 "submitted successfully" having written nothing), and no check that the student is enrolled in the course.
+
+### 2.7 Razorpay order amounts are computed in floating point [READ]
+
+`Payment.controller.js:34`:
+
+```js
+const amount = courses.reduce((sum, course) => sum + course.price, 0) * 100; // paise
+```
+
+`price` is a `Number` (`courses.js:23-26`). Any non-integer price produces a non-integer paise value — `19.99 * 100` is `1998.9999999999998` in IEEE-754. Razorpay requires an integer paise amount and will reject or mis-charge.
+
+**Fix**: `Math.round(total * 100)`, and store prices as integer paise in the model to remove the class of bug entirely.
+
+### 2.8 Payment has no webhook — a closed browser loses the enrollment [READ] — **backend-completion prerequisite**
+
+Enrollment happens only inside `verifyPayment` (`Payment.controller.js:107`), which runs only if the **browser** calls back after checkout. If the user closes the tab, loses connectivity, or the handler throws between Razorpay confirming and the enrollment write, the order stays `status: "created"` forever and the student is never enrolled — while Razorpay has taken the money.
+
+Module 2 correctly fixed the *frontend* half of "paid but not enrolled" by making enrollment atomic with verification server-side. This is the remaining half: there is no server-to-server path, so payment success still depends on the client completing a round trip.
+
+**Confirmed live 2026-09-11**: the full checkout path (order create → Razorpay UPI test payment via `success@razorpay` → `verifyPayment` → enrollment → course visible on the student's page) works end to end. That's exactly why this finding is promoted from "P1 hardening" to a **completion prerequisite**: the happy path working is precisely what hides this gap — it only shows up as silent revenue loss (charged, not enrolled, no error, no record to reconcile) the first time a real user's browser doesn't complete the round trip. The backend track should not be called done with fulfilment still client-driven only.
+
+**Fix**: add a Razorpay **webhook** endpoint (signature-verified against `RAZORPAY_WEBHOOK_SECRET`) as the authoritative fulfilment path, and make `verifyPayment` an idempotent fast-path. Requires the idempotency work in §2.9.
+
+### 2.9 `verifyPayment` is neither idempotent nor bound to the paying user [READ]
+
+`Payment.controller.js:69-117`:
+
+- **No idempotency**: replaying the same valid signature re-runs the whole handler. `enrollStudentInCourses` happens to be idempotent, which is the only reason this isn't worse — the protection is accidental, not designed. Adding the webhook in §2.8 makes double-execution routine rather than hypothetical.
+- **No amount verification**: the HMAC proves the `order_id|payment_id` pair is genuine, but the handler never fetches the payment from Razorpay to confirm the **captured amount** matches `order.amount`, or that its status is `captured`.
+- **No user binding**: the handler never checks `req.student._id` against `order.user_id`. It enrolls `order.user_id`, so it isn't a privilege escalation, but any authenticated student can drive the fulfilment of another student's order.
+
+**Fix**: guard on `order.status !== "paid"` before doing work, fetch and compare the payment amount/status via the Razorpay API, and assert the order belongs to the caller.
+
+### 2.10 Uploads: original filenames, no size limit, publicly served [READ] / [RISK]
+
+Three compounding issues in `middleware/multer.middleware.js` and `app.js`:
+
+- **`filename: cb(null, file.originalname)`** (`multer.middleware.js:7-10`) — the raw client-supplied filename is used verbatim as the on-disk name. Two users uploading `assignment.pdf` **overwrite each other** in `public/temp`, and concurrent requests can upload the wrong file to Cloudinary. [READ] Multer's own documentation warns that `originalname` is attacker-controlled and callers are responsible for sanitising it; path-traversal via crafted names is a **[RISK]** here, not verified.
+- **No `limits`** (`multer.middleware.js:28-31`) — `multer({ storage, fileFilter })` sets no `fileSize` cap, on endpoints that accept video. Any authenticated user can fill the server disk. [READ]
+- **`app.use(express.static("public"))`** (`app.js:30`) combined with multer writing to `./public/temp` means every in-flight upload is **publicly served at `/temp/<originalname>`, unauthenticated** — and because the name is the unmodified original, it is guessable. `uploadOnCloudinary` unlinks after upload so the window is normally short, but any handler that throws *after* multer writes and *before* the Cloudinary call leaves the file served indefinitely. [RISK]
+
+**Fix**: randomised filenames (`crypto.randomUUID()`), `limits: { fileSize }` per route, and move the temp directory **outside** the statically-served folder.
+
+### 2.11 The token refresh endpoint masks 401s as 400s, defeating the frontend interceptor [READ]
+
+`auth.routes.js:83-85` wraps the entire handler in a `try/catch` that rethrows **everything** as `ApiError(400, …)`. An expired or mismatched refresh token — a genuine 401 — reaches the client as a **400**.
+
+Module 3 shipped an axios response interceptor that retries once on **401** (`frontend/src/api/axios.js`). Because this endpoint can never return 401, the interceptor's failure path never triggers correctly, and a legitimately-expired session is indistinguishable from a malformed request.
+
+**Also in the same handler**: `generateStudentTokens`/`generateTeacherTokens` already fetch the user, set `refreshToken`, and `save()` internally — then lines 57-58 set `refreshToken` again on a **stale** document (read at line 33, before that save) and save a second time. Two writes per refresh, the second from a stale snapshot that can clobber concurrent field updates.
+
+---
+
+## 3. P2 — Medium
+
+### 3.1 `getCourseById` returns the number `200` instead of the course [READ]
+
+`Course.controller.js:132-134`:
+
+```js
+return res.status(200).json(200, new ApiResponse(200, course, "course sent succesfully"));
+```
+
+`res.json()` takes **one** argument. The second is ignored, so the response body is the literal JSON `200` — the course object is never sent. `GET /courses/:courseId` (`courses.routes.js:43`) is therefore non-functional for every consumer.
+
+### 3.2 Course titles are globally unique across all teachers [READ]
+
+`Course.controller.js:21-24` rejects creation if **any** course anywhere has the same title. Two different teachers cannot both publish "Introduction to Python". Should be scoped per author, or not enforced at all.
+
+### 3.3 Registration rejects duplicate *names* [READ]
+
+`UserStudent.controller.js:62-64` and `UserTeacher.controller.js:46-48`:
+
+```js
+const existedUser = await UserStudent.findOne({ $or: [{ email }, { name }] });
+```
+
+The second person named "John" cannot register — with the message "User with email or username already exists". `name` has no uniqueness requirement in the schema and shouldn't be treated as an identifier.
+
+### 3.4 Required-field validation passes when fields are absent [READ]
+
+`UserStudent.controller.js:55-57`, `UserTeacher.controller.js:39-42`:
+
+```js
+if ([name, email, password].some((field) => field?.trim() === "")) { throw new ApiError(400, ...) }
+```
+
+For a **missing** field, `field?.trim()` is `undefined`, which `!== ""` — the guard passes. Execution continues to `Model.create()`, which throws a Mongoose `ValidationError` → surfaced as an opaque 500 (§2.1), instead of a clean 400 naming the missing field.
+
+### 3.5 Empty cart returns 404 [READ]
+
+`cart.controller.js:16-18` throws `404 "Cart not found"` when a student simply hasn't added anything yet — a cart document is only created on first add (`:39-43`). Same in `inCart` (`:91-93`). A new student's cart page is an error case rather than an empty state.
+
+**Also**: `addToCart` (`:25-55`) never checks that the course exists, nor that the student is **already enrolled** — so a purchased course can be re-added and re-purchased.
+
+### 3.6 `createAssignment`'s duplicate-title check queries a non-existent field [READ]
+
+`Assignment.controller.js:69`:
+
+```js
+const existingAssignment = await Assignments.findOne({ course_id, module_id: moduleId, title });
+```
+
+`assignmentSchema` (`courses.js:98-165`) has **no `course_id` field** — only `module_id`. The same handler also *writes* `course_id` at `:89`, where strict mode silently drops it. Since no stored document has that field, the query never matches and the duplicate check never fires.
+
+### 3.7 No enrollment checks on progress and lecture endpoints [READ]
+
+- `markLectureCompleted` (`Lecture.controller.js:192-223`) — no check that the student is enrolled, nor that `lectureId` belongs to `courseId`. Any student can mark arbitrary lectures of unpurchased courses complete.
+- `markAssignmentCompleted` (`Assignment.controller.js:250-285`) — same, and it sets `completedAssignmentCount`, a field **not present** in `ProgressSchema` (`Progress.js:24-45`), so it is silently dropped.
+- `getAllLectures` / `getLectureById` (`lectures.routes.js:16,19`) use `verifyJWTCombined` — *any* logged-in user, with no enrollment check. `getLectureById` returns the full lecture including `videourl`. This is §1.1 again, one tier down because it at least requires an account.
+
+### 3.8 Progress has two sources of truth and no uniqueness constraint [READ]
+
+`completedLectureCount` is maintained alongside `completedLectures[]` (`Lecture.controller.js:204,216`) and the two can drift; `CourseProgress` reads the counter for the percentage (`Course.controller.js:261`) but `.length` for the displayed count (`:264`). `ProgressSchema` also has **no compound unique index** on `{studentId, courseId}`, and `markLectureCompleted` does `findOne`-then-`create` rather than an upsert — concurrent requests can create duplicate Progress documents.
+
+### 3.9 N+1 query on category listing [READ]
+
+`getCoursesByCategory` (`Course.controller.js:145-153`) loops over results issuing a separate `UserTeacher.findById` per course, instead of `.populate('author','name')` — which the neighbouring `getCourseById` (`:125`) already does correctly.
+
+### 3.10 No pagination anywhere [READ]
+
+`getAllCourses` (`Course.controller.js:161`) and `getCoursesByCategory` (`:144`) return unbounded `find()` results. `mongoose-aggregate-paginate-v2` is a declared dependency and is **imported** at `courses.js:2` but **never registered as a plugin** — the intent existed and was never finished.
+
+### 3.11 Inconsistent response envelopes [READ]
+
+`markLectureCompleted` and `getLecturesCompleted` (`Lecture.controller.js:226-251`) return **raw objects** (`{success, completedLectures}`) while every other endpoint returns `ApiResponse` (`{statusCode, data, message, success}`). The frontend has already had to special-case this: `LectureAssig.jsx:29` reads `response.data.completedLectures` where everything else reads `response.data.data`.
+
+### 3.12 Cookie flags are hardcoded for HTTPS [READ] / [RISK]
+
+`options = { httpOnly: true, secure: true, sameSite: "none", … }` is hardcoded in three places (`UserStudent.controller.js:13-18`, `UserTeacher.controller.js:8-13`, `auth.routes.js:60-65`) with `NODE_ENV=development` in `.env`.
+
+`secure: true` requires a secure context. Chrome treats `http://localhost` as trustworthy so this often works locally, which is why it hasn't been decisively diagnosed — but it is fragile across browsers and breaks outright on any non-HTTPS non-localhost deployment. `UI_AUDIT.md` §2.6 already flagged refresh as depending on "a cookie that may be blocked"; this is the backend half of that symptom. Should derive from `NODE_ENV`, in one shared place.
+
+---
+
+## 4. P3 — Hygiene, dead code, consistency
+
+### 4.1 Dead and broken code
+
+- **`Course.controller.js:294-361`** — `addToCart`, `removeFromCart`, `getCart` reference `Cart`, whose import is **commented out** at `:11`. They are also never exported and never routed. `removeFromCart` (`:321`) is declared `async () => {}` with **no `req`/`res` parameters** yet uses `req` in its body. They query `{user_id}` / `$push: {courses}`, which don't match the actual cart schema (`user` / `items`). ~68 lines of code that would throw `ReferenceError` if reachable. The real implementations live in `cart.controller.js`. **Delete.**
+- **`Modules.controller.js:35-98`** — `addLectureToModule` and `addAssignmentToModule` are exported but **never routed** (confirmed by grep: the names appear only in their own file). Both are also broken: each omits the `module_id` that its target schema marks `required: true` (`courses.js:92,102`), so both would throw `ValidationError` on every call, and **neither calls `assertCourseOwnership`** while every other mutation in that file does. They are near-duplicates of the working, correctly-guarded `addLecture` (`Lecture.controller.js:14-81`) and `createAssignment`. **Delete** — they are a live trap for whoever wires a route to them next.
+- **`Assignment.controller.js:13-45`** — 33 lines of commented-out `createAssignment`, with `import fs from "fs/promises"` stranded at `:46` in the middle of the file.
+- **Unused imports**: `maxHeaderSize` from `http` (`UserStudent.controller.js:7`); `verifyJWTCombined` in `auth.routes.js:2`; `upload`/`verifyJWTStudent`/`verifyJWTCombined` in `modules.routes.js`; `upload` in `students.routes.js`.
+- **Leftover debug middleware shipped in a route**: `assignments.routes.js:32-37` inlines a middleware that does `console.log(req.student._id); console.log('hello');`.
+
+### 4.2 Unused dependencies
+
+- **`mongodb`** — zero references in `src/`; mongoose bundles its own driver.
+- **`validator`** — referenced only inside commented-out code (`userteachermodel.js:79,82`).
+- **`mongoose-aggregate-paginate-v2`** — imported but never applied (§3.10).
+- **`fs-extra`** — used once (`Lecture.controller.js:74`) for a `fs.remove` that is **redundant**: `uploadOnCloudinary` already `unlinkSync`s the file at `cloudinary.js:22`.
+- **`nodemon` is in `dependencies`, not `devDependencies`**, and `"start": "nodemon src/index.js"` is the only script — there is no production start command.
+
+### 4.3 Logging noise and PII
+
+Beyond the credential logging in §1.4: `app.js:32-35` logs every request path/method; `authteacher.middleware.js:16,19,25` logs the decoded token and the **entire user document** on every teacher request; `console.log` of full documents in `Course.controller.js:74,87,112,143,154,198-200`, `Modules.controller.js:141,149`, `Lecture.controller.js:66-67`, `Assignment.controller.js:128,139,164,222,252`, `Payment.controller.js:51`. Registration logs the user's email (`UserStudent.controller.js:51`, `UserTeacher.controller.js:34`).
+
+### 4.4 Copy-paste errors in messages
+
+- `Assignment.controller.js:192,195` — both throw **"Lecture Not Found"** inside the *assignment* controller.
+- `Lecture.controller.js:136-138` — throws "Lecture Not Found" when the **module** is missing.
+- `Course.controller.js:209,212` — the two messages are **swapped**: a missing *student* throws "course id not found" and a missing *course* throws "student not found".
+- Registration returns **HTTP 200** with the message "User Logged in Succesfully" (`UserStudent.controller.js:108-119`, `UserTeacher.controller.js:67-76`) — wrong status for a create, wrong verb, and "Succesfully" is misspelled throughout the codebase.
+
+### 4.5 Model-layer defects
+
+- **`Progress.js:21`** — `completedAt: { type: Date, default: Date.now() }`. The parentheses **invoke** `Date.now` at schema-definition time, so every completed *assignment* is stamped with the **server's boot time**, not the completion time. The lecture schema immediately above (`:8-11`) correctly passes `Date.now` without parentheses — the two are three lines apart.
+- **`Orders.js:5`** — `ref: "Course"`, but the registered model name is **`"Courses"`** (`courses.js:183`). Any `.populate("course_ids")` on an Order throws `MissingSchemaError`. Latent — nothing populates it today.
+- **Circular import** — `Modules.js:2` imports from `courses.js`, and `courses.js:4` imports from `Modules.js`. Tolerated today only because both are used inside deferred hook callbacks (which never fire anyway, §2.3).
+- **`email` has no `lowercase: true`/`trim: true`** on either user model, so `A@b.com` and `a@b.com` are distinct accounts despite the unique index.
+- **A student and a teacher can share an email** — separate collections, separate indexes, no cross-check.
+- **No password length/strength constraint** at the schema level.
+
+### 4.6 Boot-time fragility
+
+- **`app.js:14`** — `process.env.CORS_ORIGIN.split(",")` throws `TypeError` at import if `CORS_ORIGIN` is unset. No default, no validation.
+- **`Payment.controller.js:13-16`** — `new Razorpay({...})` runs at **module load**. Missing Razorpay env vars take down the whole server at import, not at first payment.
+- **`index.js:14`** — listens on `process.env.PORT || 8000` but logs `${process.env.PORT}`, printing `undefined` when falling back.
+- **`dotenv.config()` is called three times** (`app.js:2`, `index.js:6`, `cloudinary.js:4`) plus once more in `UserStudent.controller.js:10`. It works only because `app.js`'s call happens first via import hoisting.
+- **`.env` formatting** — `RAZORPAY_KEY_ID =` / `RAZORPAY_KEY_SECRET =` have spaces around `=` unlike every other key. dotenv tolerates it (already confirmed in `UI_AUDIT.md` §10.2); it's an inconsistency, not a bug.
+
+### 4.7 Missing baseline protections
+
+No `helmet` (security headers), no rate limiting on `/login` / `/signup` / `/refresh-Token` (unlimited credential stuffing), no request-id/correlation logging, no graceful shutdown, no health-check endpoint, and **no tests of any kind** (`"test": "echo \"Error: no test specified\" && exit 1"`).
+
+### 4.8 Secrets hygiene — one thing to verify
+
+`backend/.env` is correctly **untracked and gitignored** — good. However, a `LearnStream/frontend/.env` **does appear in git history** (commits `c3e9f1a`, later removed in `14480ac`). Frontend env files normally hold only publishable values (`VITE_RAZORPAY_KEY_ID` is a public key by design), so this is likely benign — but **confirm what that file contained**, since history removal requires a rewrite, not just a delete.
+
+---
+
+## 5. Structural problems → what restructuring should fix
+
+The bug list above is not a collection of unrelated mistakes. Six structural properties generate them repeatedly.
+
+### 5.1 No error-handling layer
+Nothing owns the translation from thrown error to HTTP response, so Express's default handler does it — badly (§2.1). This single gap also hides §2.2 (wrong statuses go unnoticed because *every* error looks the same to the client) and blocks the frontend from ever showing a real message.
+
+### 5.2 Business logic lives in controllers
+Controllers parse the request, enforce authorization, talk to Cloudinary, write several collections, and format the response. There is no service layer. Consequences: ownership checks are applied ad hoc and get **forgotten** (§1.2, §1.1); multi-collection writes have no transaction boundary; and identical operations get implemented twice in divergent ways (`addLecture` vs `addLectureToModule`, §4.1).
+
+### 5.3 Authorization is per-handler, not declarative
+`assertCourseOwnership` must be remembered and called manually inside each handler. It is called in 6 places and **missing in at least 4 where it is needed** (§1.2, §1.1, and both dead handlers). Enrollment checks don't exist at all (§3.7). Authorization that depends on a developer remembering will keep failing.
+
+### 5.4 Two user models, and role isn't in the token
+`userstudentmodel.js` and `userteachermodel.js` are ~90% identical (same fields, same pre-save hook, same three methods). Neither JWT carries a **`role` claim** — both are signed with the same `ACCESS_TOKEN_SECRET` with payload `{_id, email, name}`. Role is inferred purely from *which collection contains that `_id`*, which is why `verifyJWTCombined` (`authcombined.middleware.js:9-10`) has to assign the **same header value** to both `teacherToken` and `studentToken` and try each collection in turn. Every auth path is more complex than it needs to be because of this one modelling decision.
+
+### 5.5 Duplicated and abandoned implementations
+Two cart implementations (one dead and broken, §4.1), two lecture-creation paths, two assignment-creation paths, an unrouted-but-exported surface, and an endpoint whose helper was never imported after a refactor (§1.3). Nothing flags a controller that no route references.
+
+### 5.6 No validation, no config, no tests
+Request shapes are checked with hand-rolled truthiness tests that don't work (§3.4). Env vars are read directly off `process.env` at import with no validation (§4.6). There are zero tests, so §1.3, §2.3, §3.1 and §4.5 could all sit in `main` indefinitely — each is a one-line assertion away from being caught.
+
+---
+
+## 6. Target structure
+
+### 6.1 Proposed layout
+
+```
+backend/src/
+  config/
+    env.js               # validate + export typed config at boot; fail fast, one place
+    db.js                # (moved from db/index.js)
+    cloudinary.js        # SDK config only
+  models/
+    user.model.js        # ONE User model + role discriminator (replaces the two)
+    course.model.js      # Courses only
+    lecture.model.js     # split out of courses.js
+    assignment.model.js  # split out of courses.js
+    module.model.js
+    progress.model.js
+    cart.model.js
+    order.model.js
+  services/              # NEW — all business logic, no req/res
+    course.service.js
+    lecture.service.js
+    assignment.service.js
+    enrollment.service.js
+    payment.service.js
+    media.service.js     # Cloudinary upload/delete w/ resource_type
+  controllers/           # thin: parse → call service → respond
+  middleware/
+    auth.js              # ONE middleware, role-aware (replaces the three)
+    requireRole.js       # requireRole('teacher')
+    requireCourseOwner.js# declarative, replaces manual assertCourseOwnership
+    requireEnrollment.js # NEW — closes §1.1/§3.7
+    upload.js            # multer w/ random names + size limits
+    validate.js          # schema validation (zod)
+    errorHandler.js      # NEW — the single most important addition
+  routes/
+  utils/
+  validators/            # NEW — request schemas per endpoint
+```
+
+### 6.2 The four changes that remove whole bug classes
+
+1. **`errorHandler.js`** — one middleware, registered last in `app.js`. Serializes `ApiError` to the `ApiResponse` envelope, maps Mongoose/Multer errors to 400, includes `stack` only outside production. Kills §2.1 and makes §2.2 visible instead of silent.
+2. **Unified `User` model + `role` in the JWT** — collapses two models into one with a discriminator, puts `role` in the token payload, and reduces three auth middlewares to one. Kills §5.4 and simplifies §1.2's fix.
+3. **Declarative route guards** — `requireCourseOwner` and `requireEnrollment` as middleware composed at the route, so authorization is visible in the route table and cannot be forgotten inside a handler body. Kills the §5.3 class, including §1.1 and §1.2.
+4. **Service layer** — controllers stop owning multi-collection writes; cascades (§2.3) and payment fulfilment (§2.8/§2.9) become explicit, testable, transaction-capable functions.
+
+### 6.3 Explicitly *not* recommended
+
+- **Do not reintroduce Mongoose `pre` hooks for cascades.** Silent non-firing hooks caused §2.3. Explicit service functions, please.
+- **Do not switch to TypeScript as part of this.** Valuable, but it would gate every fix below on a full migration. Revisit after B1–B3 land.
+- **Do not upgrade Mongoose/Express versions in the same pass** as behavioural fixes — separate, verifiable steps.
+
+### 6.4 Two hypotheses tested and rejected
+
+Recorded so nobody re-investigates them:
+
+- **`student.Courses.includes(course_id.toString())`** (`utils/enrollment.js:22`) was suspected of always returning `false` (ObjectId vs string). **Tested — it works.** Mongoose overrides `includes`/`indexOf` on ObjectId arrays to cast the argument; `includes(string)`, `includes(ObjectId)` and `some(x => x.equals(id))` all returned `true`. **Not a bug.**
+- **`ApiError`'s status code was suspected of being ignored** by Express's default handler. **Tested — it is respected** for correctly-constructed errors (a 404 came back as HTTP 404). The real problems are the HTML body + stack leak, and the 16 call sites that never pass a code at all (§2.2).
+
+---
+
+## 7. Delivery plan
+
+Backend modules are numbered **B1–B6** so they don't collide with the existing frontend Module 0–9 sequence in `~/.claude/plans/` and `REQUIREMENTS.md`.
+
+### Module B0 — Verify production exposure (do first, before anything else)
+`.env` shows this backend is deployed at `learnstream.onrender.com`, actual API host `whathecode-learnstream.onrender.com`.
+- [x] Confirm whether deployed prod serves `GET /courses/:id/modules` unauthenticated (§1.1) — **yes, confirmed 2026-09-11**. Live incident, not a backlog item.
+- [ ] Rotate `ACCESS_TOKEN_SECRET` / `REFRESH_TOKEN_SECRET` — §1.4 means tokens have been written to logs for the lifetime of the deployment. Rotation invalidates anything already captured. **Local `.env` currently holds placeholder-looking values (`chai-aur-code` / `chai-aur-backend`) — confirm whether Render's env vars match or differ before rotating either one, since only the value actually running in prod needs invalidating.**
+- [ ] Check whether Cloudinary assets are public-read and whether any `public_id`s have been scraped.
+- [ ] Confirm what the historical `frontend/.env` contained (§4.8).
+
+### Module B1 — P0 containment
+- [ ] Auth + enrollment guard on `getCourseModules`; stop returning `public_id` to non-entitled callers (§1.1).
+- [ ] Signed/expiring Cloudinary URLs for lecture + assignment media (§1.1) — the only fix that helps against already-leaked ids.
+- [ ] `assertCourseOwnership` on `getStudentsAndUploadedAssignments` and `getEnrolledStudents` (§1.2).
+- [ ] Delete all four credential `console.log`s (§1.4).
+- [ ] Fix logout to actually clear `refreshToken` (§1.5) — verify by reading the DB after logout.
+- [ ] Fix or delete `POST /courses/enroll` (§1.3).
+
+**Verification**: re-run the §1.1 chain and confirm 401/403 at step 2; log in as teacher B and confirm 403 reading teacher A's assignment submissions; log out, then attempt a refresh with the old token and confirm it fails.
+
+### Module B2 — Error handling & contracts
+- [ ] Add `errorHandler.js` and register it last in `app.js` (§2.1).
+- [ ] Fix all 16 statusless `ApiError` calls (§2.2); make the constructor reject non-numeric status codes.
+- [ ] Fix `getCourseById`'s `res.json(200, …)` (§3.1).
+- [ ] Normalise `markLectureCompleted`/`getLecturesCompleted` onto `ApiResponse` — **coordinate with the frontend**, `LectureAssig.jsx:29` depends on the current raw shape (§3.11).
+- [ ] Unblock the frontend: with B2 done, `err.response.data.message` finally carries real text everywhere.
+
+### Module B3 — Data integrity
+- [ ] Replace the dead cascade hooks with explicit service-layer deletes; `$pull` from parent arrays (§2.3).
+- [ ] One-off cleanup migration for already-orphaned lectures/assignments and dangling `modules[]` ids.
+- [ ] `resource_type` on Cloudinary deletes (§2.4); `Promise.allSettled` in `deleteAssignment` (§2.5).
+- [ ] Server-side deadline + persist `submittedOnTime`; validate the assignment exists (§2.6).
+- [ ] Fix `Progress.js:21`'s `Date.now()` and add the `{studentId, courseId}` unique index (§4.5, §3.8).
+- [ ] Fix `Orders.js`'s `ref: "Course"` (§4.5).
+
+### Module B4 — Payments
+- [ ] `Math.round` on paise; migrate prices to integer paise (§2.7).
+- [ ] **Razorpay webhook as the authoritative fulfilment path (§2.8) — backend-completion prerequisite, not optional.** Checkout works end-to-end on the happy path (confirmed 2026-09-11), which is exactly why this can't be skipped: today, enrollment success depends entirely on the client completing a round trip after payment. Do not consider the backend track done without this.
+- [ ] Idempotency guard, amount verification, order-ownership check in `verifyPayment` (§2.9).
+
+### Module B5 — Restructure (§6)
+- [ ] `config/env.js` with fail-fast validation (§4.6).
+- [ ] Unified `User` model + `role` claim; collapse three auth middlewares into one (§5.4).
+- [ ] Service layer extraction; thin controllers (§5.2).
+- [ ] `requireCourseOwner` / `requireEnrollment` route guards (§5.3).
+- [ ] Split `models/Course/courses.js` into three model files; break the circular import (§4.5).
+- [ ] Delete all dead code in §4.1; drop unused deps in §4.2; move `nodemon` to devDependencies and add a real `start`.
+
+### Module B6 — Hardening & tests
+- [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
+- [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
+- [ ] Request validation schemas (§3.4).
+- [ ] Pagination (§3.10) and the N+1 fix (§3.9).
+- [ ] First tests — prioritise regression tests for §1.1, §1.2, §1.3, §2.3, and §3.1, each of which a single assertion would have caught.
+- [ ] Strip logging noise / PII (§4.3); fix the message copy-paste errors (§4.4).
+
+---
+
+## 8. Summary
+
+**Fix first (P0)** — 1.1 unauthenticated paid-content bypass (verified end to end) · 1.2 cross-teacher student PII leak · 1.3 `/courses/enroll` 500s on every call · 1.4 tokens in server logs · 1.5 logout doesn't invalidate sessions.
+
+**Then (P1)** — 2.1 no error handler (highest leverage single change) · 2.2 sixteen statusless errors · 2.3 dead cascade hooks orphaning data · 2.4 Cloudinary assets never deleted · 2.5 unawaited deletes can crash the process · 2.6 client-controlled deadlines · 2.7 float paise · 2.8 no payment webhook · 2.9 non-idempotent verification · 2.10 upload handling · 2.11 refresh masks 401 as 400.
+
+**Structural** — no error layer, logic in controllers, non-declarative authorization, duplicated user models with no role claim, abandoned duplicate implementations, no validation/config/tests (§5). Target layout and the four highest-value changes in §6.
+
+**Two suspected bugs were tested and cleared** (§6.4) — they are not bugs, don't re-investigate.
+
+**Not verified against production** — §7 Module B0 lists exactly what to check there, including secret rotation, which §1.4 makes non-optional.

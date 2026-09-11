@@ -1,7 +1,9 @@
 # LearnStream — Frontend Redesign & Auth-Fix Requirements
 
 Date: 2026-09-10
-Companion doc: `UI_AUDIT.md` (findings this document turns into requirements)
+Companion docs: `UI_AUDIT.md` (findings this document turns into requirements) · `BACKEND_AUDIT.md` (backend audit + its own B0-B6 restructuring plan)
+
+**Scope note**: this document and its Module 4/6 plans cover the **frontend/fullstack** track only. Backend work is tracked separately in `BACKEND_AUDIT.md`, whose Modules B0-B2 outrank everything still unchecked here — including a verified unauthenticated bypass of paid course content, and a missing error-handling middleware (B2) that currently makes every server error arrive at the client as HTML, so `err.response.data.message` is always `undefined`. Frontend error-message work should wait for B2 rather than working around it.
 
 ---
 
@@ -301,3 +303,56 @@ All six must be registered in `frontend/src/main.jsx`'s router and linked from t
 8. Real lecture-completion tracking + assignment-completion gating (§7.2), teacher grading (§7.3).
 9. Signup/auth hardening + content/polish cleanup (§8.6, §8.7).
 10. Axios interceptor + remaining smaller fixes + dead-code/dependency cleanup (§6.3, §7.4, §10).
+
+---
+
+## 12. Module 4 plan: design system consolidation & layout standardization
+
+This is Module 4 in the full module sequence (0 docs → 1 P0 security → 2 payment → 3 nav/auth/landing → **4 design system** → 5 learning experience → 6 teacher workflow → 7 new pages → 8 content cleanup → 9 dead code). Consolidates what was previously only referenced in passing (§2, §11 item 5, and `UI_AUDIT.md` §10.3/§10.4).
+
+### 12.1 shadcn/ui migration — done except dependency removal
+
+**Pin the CLI version.** `npx shadcn@latest init` no longer matches this plan: "latest" resolved to v4.21.0, which is Tailwind-v4-first (`@theme inline`/`@utility` CSS) and broke the build instantly on this Tailwind v3.4.17 project (`border-border` class does not exist) — reverted before anything else was touched. **`npx shadcn@2.10.0`** is the last major version with the classic Tailwind-v3 flow used below; use that pin for any future `add` commands, not `@latest`. That version's init also wrote `hsl(var(--x))` in `tailwind.config.js` against `oklch(...)` CSS variable values — `hsl(oklch(...))` is invalid CSS and silently killed every color utility with no build error. Fixed by using `var(--x)` directly in the config; re-check this if `shadcn add` ever rewrites that file.
+
+1. [x] `npx shadcn@2.10.0 init` (New York style, neutral base) in `frontend/` — added `components.json`, `src/lib/utils.js`, updated `tailwind.config.js`/`src/index.css`. Also added `jsconfig.json` and a Vite `resolve.alias` for `@/*` (neither existed before and both are required for the CLI's import alias).
+2. [x] Added primitives: `npx shadcn@2.10.0 add dropdown-menu avatar button input dialog badge` → `src/components/ui/*`. Dependencies added: `@radix-ui/react-{avatar,dialog,dropdown-menu,slot}`, `class-variance-authority`, `clsx`, `tailwind-merge`, `tailwindcss-animate`.
+3. [x] `Navbar1.jsx`: Flowbite `Dropdown`/`Avatar` → shadcn `DropdownMenu`/`Avatar`; hardcoded hex colors → `brand`/`brand-dark` tokens (fixed a real bug in the process — the signup button's hover was a stray unrelated blue, not the brand green used everywhere else).
+4. [x] `login.jsx`: Flowbite `TextInput`/`Spinner` → shadcn `Input`/`Button` + a `lucide-react` `Loader2` spinner (reuses the icon set already used elsewhere instead of a separate spinner component).
+5. [x] Cart line items relaid out per §4.4 (below), plus wrapped in `max-w-container` per §3's shell rule.
+6. [x] Category bar + course catalog grid restyle (`CategoryBar.jsx`, `CourseComp.jsx`) — pulled forward per `UI_AUDIT.md` §10.3; hardcoded 5-star rating block removed (§6.1); `CategoryBar` now receives and highlights `selectedCategory` (previously tracked by `GeneralCourses` but never passed down, so no active-category indicator was even possible — `UI_AUDIT.md` §8.10). Also fixed a `no-undef` bug found while touching `CourseComp.jsx`: `course?.author?.name || getAuthorName` referenced an undefined variable as a fallback.
+7. [ ] Teacher creation-modal primitives (see §13.3) — swap `Pages/Modal.jsx` and `components/FileDropzone.jsx` (built Tailwind-only in Module 6) onto shadcn `Dialog`/`Progress` — not done yet, next up.
+8. [ ] **Deferred to Module 9 on purpose**: don't remove `flowbite-react`/`mdb-react-ui-kit`/`@mui/icons-material` from `package.json` yet — `flowbite-react` is still imported elsewhere (`Cart.jsx`'s `Card`, `LectureAssig.jsx`, etc.) that this pass didn't touch.
+
+**Verification:** `npx vite build` passes clean. **Not yet verified visually** — no connected browser this session, so navbar/cart/course-grid/login rendering has only been confirmed to compile, not seen.
+
+Module 4 does not itself cover teacher-dashboard layout or the creation-modal upload UX — that work is scoped to Module 6 (§13), even though both converge on the same shadcn primitives (item 7 above).
+
+---
+
+## 13. Module 6 plan: teacher workflow fixes
+
+Module 6 in the sequence above (P2, after Module 5's learning-experience work). Pre-existing scope plus what manual testing round 2 (teacher workflow) newly surfaced, both tracked together since they touch the same files.
+
+### 13.1 Pre-existing scope (not yet started)
+- Fix the dead "Add lecture-assignment" button in `ViewtheModules.jsx:174` — it checks the never-assigned local `owner_id` instead of the correctly-set `ownerId` state variable already used elsewhere in the same file.
+- De-duplicate the "who owns this course" fetch, currently called independently in both `ViewtheModules` and every `ModuleDropdown` instance it renders — lift it to the parent and pass `ownerId` down as a prop.
+- Add a minimal grading/feedback mechanism (§7.3): `status`/`grade`/`feedback` fields on the `uploadedAssignments` subdocument, a teacher-only `PATCH` endpoint, and a small form in `UploadedAssignment.jsx`.
+- Move `ViewtheModules.jsx`'s `CustomLogo`/`AssignmentIcon` imports out of `public/` into `src/` (or replace with `lucide-react` icons already used elsewhere) so they resolve correctly in a production Vite build.
+- Make `deletelecture`'s cleanup (`ViewtheModules.jsx:261`) consistent with `deleteAssignment` right next to it — update local state instead of a full `window.location.reload()`.
+
+### 13.2 `Courseupdatation.jsx` fixes — partially done (manual testing round 2)
+- [x] Surface per-item upload failures instead of always showing "success" — each lecture/assignment now tracks its own `idle/uploading/done/error` state via a new `FileDropzone` component; a failure aborts submit and shows a dismissible error banner instead of a false success message.
+- [x] Fix the `array.length + 1` ID-collision bug — now `Math.max(existingIds) + 1`, unique across deletions.
+- [ ] Use the already-fetched `ownerId` as an actual permission guard (still fetched but unused).
+- [ ] Add `Authorization` headers to its three POST calls (still cookie-only).
+- [ ] Navigate or refresh the module list after a successful submission (currently the teacher has to close the modal and reload manually).
+
+### 13.3 Teacher dashboard layout & creation-modal UX — done (manual testing round 2, newly identified)
+Full detail in `UI_AUDIT.md` §10.5. Not previously in this plan at all. Shipped using the existing Tailwind/flowbite-react stack — no new dependencies, so it didn't need to wait on Module 4's shadcn bootstrap:
+- `TeachersPage.jsx`: primary "Create Course" CTA moved to a header-level position above the fold, plus a CTA in a new empty state for teachers with zero courses.
+- `TeachersPage.jsx` + `components/GeneralCourses.jsx`: the cross-teacher "Top Courses" section — previously the same full category-bar+grid component used on `StudentPage.jsx` — is now a visually demoted, category-bar-free 3-course teaser with a link out to the full catalog. `GeneralCourses` gained opt-in `showCategoryBar`/`limit` props for this (backward-compatible; `Home.jsx`/`StudentPage.jsx` are unaffected).
+- `Pages/Modal.jsx`: fixed a real close-button mispositioning bug (missing `position: relative` on the modal box, so the button was anchored to the viewport corner via the `fixed inset-0` backdrop instead of the modal card) and added proper title/header support.
+- `components/GeneralCourses.jsx`: fixed a dead `errRef.current.focus()` call (`errRef` was never defined or passed by any of its three callers) that threw and swallowed the real fetch-error message.
+- New `components/FileDropzone.jsx` (drag-and-drop, filename/size, per-file upload progress and status) used by `Courseupdatation.jsx` and `components/LectureAssignment.jsx` in place of bare `<input type="file">` — goes beyond §13.2's original "surface per-item failures" ask.
+
+**Carried into Module 4 §12.1 step 7 for when the shadcn bootstrap happens:** swap the inline Tailwind buttons on the teacher dashboard, and `Modal`/`FileDropzone`/form inputs in the two creation forms, onto shadcn `Button`/`Dialog`/`Input`/`Progress` primitives — the current versions are already structured (consistent spacing, real status states) so this should be a drop-in swap, not a rewrite.
