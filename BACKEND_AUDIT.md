@@ -773,6 +773,54 @@ describe the two-model design and cite files that no longer exist
 middlewares). `INTERVIEW_PREP_Learnstream.md` matters most — its ER diagram and
 schema walkthrough now describe a structure the code no longer has.
 
+### Deploy prerequisites — read before pushing to Render
+
+Established 2026-09-12 the hard way. **Production and local share one Atlas
+database.** Confirmed by comparing `/courses/getallCourses`: identical 13
+courses, identical integer-paise prices. So every migration run from a developer
+machine has *already* applied to production data.
+
+**Production is running pre-B1 code.** Verified live: an unauthenticated
+`GET /courses/:id/modules` returns **200 with `public_id`** — §1.1's bypass,
+still open — and a malformed ObjectId returns an HTML error page rather than
+B2's JSON envelope. `POST /payment/webhook` 404s, so B4 is not deployed either.
+Nothing from B1–B5 has ever shipped.
+
+**Two consequences of the shared database, both live right now:**
+
+1. **Prices display 100× too high.** B4 converted stored prices to integer
+   paise; the deployed frontend predates `utils/money.js` and renders the raw
+   value, so a ₹79 course shows as ₹7900.
+2. **Renaming the legacy user collections takes production login down.** This
+   happened: `userstudents`/`userteachers` were renamed `zz_legacy_*` as tidying,
+   and the deployed code — which still reads the old names — began 404ing every
+   login. Restored by dropping the empties and renaming back.
+
+   The failure mode is worth understanding, because it is not what it looks
+   like. The deployed app **re-creates the old collections empty on boot**:
+   Mongoose builds the `unique: true` email index at model initialisation, and
+   that creates the collection. An empty `userstudents` is indistinguishable
+   from a missing one to a login query — `findOne({email})` returns null and the
+   handler answers "no such user exists" with a 404. So the symptom was "every
+   password is wrong", with a collection sitting there looking healthy.
+
+**Therefore the order is fixed:**
+
+1. Check Render's environment variables **first**. `config/env.js` now fails
+   fast, so a missing `ACCESS_TOKEN_EXPIRY` (or any of the 11 required entries)
+   turns a deploy into a crash loop instead of a silent default.
+2. Check Render's start command. It must be `npm start` or `node src/index.js` —
+   `nodemon` is now a devDependency and Render prunes those, so an explicit
+   `nodemon src/index.js` start command will fail to resolve.
+3. Deploy backend and frontend together. The paise change spans both.
+4. Verify against production: §1.1 returns 401, a malformed id returns JSON,
+   `/payment/webhook` exists, prices render as rupees, login works.
+5. **Only then** retire `userstudents`/`userteachers`, and register the Razorpay
+   webhook at `https://whathecode-learnstream.onrender.com/payment/webhook`.
+
+`scripts/check-user-invariants.js` treats the legacy collections as an expected
+warning rather than a failure for exactly this reason.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).

@@ -32,12 +32,27 @@ async function main() {
     // --- the collection itself ---
     check(names.includes("users"), "`users` collection exists");
 
+    // NOT a failure while the deployed build still predates the merge.
+    //
+    // Production and local share one Atlas database. The deployed code still
+    // reads `userstudents`/`userteachers`, so those collections must keep their
+    // data until the merge is actually deployed — renaming them away took
+    // production login down until they were restored. Worse, the deployed app
+    // re-creates them *empty* on boot (Mongoose builds the unique email index
+    // at model init, which creates the collection), and an empty `userstudents`
+    // is indistinguishable from a missing one to a login: every user 404s.
+    //
+    // Correct sequence: deploy first, confirm production reads `users`, and
+    // only then retire these. Until that happens their presence is expected.
     const live = LEGACY.filter((n) => names.includes(n));
-    check(
-        live.length === 0,
-        "no live legacy user collection",
-        live.length ? `found ${live.join(", ")} — something re-created the split` : ""
-    );
+    if (live.length) {
+        console.log(
+            `warn  legacy collection(s) still live: ${live.join(", ")} — expected until the ` +
+            `merge is deployed, since production still reads them. Retire only after deploying.`
+        );
+    } else {
+        check(true, "no legacy user collection remains");
+    }
 
     const users = db.collection("users");
     const total = await users.countDocuments();
