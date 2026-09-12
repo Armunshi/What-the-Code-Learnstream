@@ -821,6 +821,26 @@ Nothing from B1–B5 has ever shipped.
 `scripts/check-user-invariants.js` treats the legacy collections as an expected
 warning rather than a failure for exactly this reason.
 
+**Deployed 2026-09-12, and verified.** `scripts/verify-deployment.js` against
+`whathecode-learnstream.onrender.com` now passes all six checks, where it failed
+three before: §1.1 returns **401** with no `public_id` in the body, errors come
+back as the JSON envelope, `/payment/webhook` exists and refuses correctly while
+its secret is unset, logins resolve, prices are integer paise. Render settings
+that worked: root directory `LearnStream/backend`, build `npm ci`, start
+`npm start`, `NODE_ENV=production`, and `CORS_ORIGIN` extended to include the
+Vercel origin — confirmed by an `Origin:`-header probe returning
+`access-control-allow-origin` for both `https://learnstream-chi.vercel.app` and
+`http://localhost:2000`.
+
+The legacy collections are now retired (renamed `zz_legacy_*`, data kept). That
+was only done **after** proving the deployed build reads `users`, using two
+discriminators rather than assuming: `pp@n.com` logs in as 401 (it is stored
+lowercase only in `users`; the legacy copy is `PP@n.com`, which the old
+exact-match query would have missed), and the `12@12.com` *teacher* returns 404
+(that duplicate was dropped during the merge but still exists in the legacy
+collection, so a 401 would have meant the old data was still being read).
+Production login re-probed immediately afterwards: still 401, not 404.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
