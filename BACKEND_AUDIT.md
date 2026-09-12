@@ -907,6 +907,39 @@ still bites on any of these three, they need the same header + wiring.
 `Partitioned`. All diagnostic accounts created against production during this
 investigation were removed afterward.
 
+### §3.17 — Dynamic-import chunk mismatch after every frontend deploy
+
+Found and fixed 2026-09-12, minutes after the §3.16 deploy: clicking into a
+lecture threw React Router's raw error screen —
+`Failed to fetch dynamically imported module: .../assets/FilePlayer-D0GarZ_9.js`.
+
+**Not our code.** There is no `React.lazy()` anywhere in `frontend/src`.
+`FilePlayer` is `react-player`'s own internal lazy-loaded backend — it ships one
+small chunk per provider (YouTube, Vimeo, Twitch, Mux, SoundCloud, FilePlayer,
+…), each separately content-hashed by Vite. Confirmed directly: a local
+`vite build` produces a *different* `FilePlayer-<hash>.js` on every single run,
+alongside 13 sibling provider chunks built the same way. Vercel does not retain
+assets from a previous deployment once a new one replaces it.
+
+So any browser tab left open **across a deploy** holds an `index.html` that
+still points at the old build's chunk hashes. The moment it tries to dynamically
+import one, that exact file 404s. This is the same category of problem as
+§3.16 — stale client state surviving a deploy — but for static assets instead
+of a cookie, and it will recur on **every future frontend deploy**, for anyone
+who happens to have a tab open across it. Confirmed the failing hash was from a
+superseded build and the live deployment serves a different one
+(`FilePlayer-CdaiTL2E.js` at the time).
+
+**Fix**: `main.jsx` now listens for Vite's own `vite:preloadError` event —
+documented, purpose-built for exactly this failure — and reloads the page once.
+Guarded with a `sessionStorage` flag so a *genuinely* broken deployment (the
+chunk missing because the build itself failed, not because a newer deploy
+superseded it) reloads once and then surfaces the real error, rather than
+loop-reloading forever.
+
+**Verification**: `vite build` succeeds cleanly with the change in place. e2e
+13 passed / 2 failed — unchanged baseline.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
