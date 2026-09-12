@@ -19,6 +19,27 @@ import { enrollStudentInCourses } from "./enrollment.js";
 // before either writes, and both enroll. This is the same pattern §10.3
 // documents for progress writes.
 const fulfilOrder = async ({ razorpayOrderId, paymentId, signature, source }) => {
+    // Refuse to "fulfil" an order that names no courses. Legacy orders written
+    // before the course_ids array existed store a singular `course_id` the
+    // current schema doesn't declare, so Mongoose hands back an empty array and
+    // enrollStudentInCourses loops zero times — enrolling nobody while the
+    // order is stamped paid and fulfilled. A record that claims fulfilment
+    // happened when it didn't is worse than an unfulfilled one, because
+    // reconciliation will never look at it again. Bail out before claiming.
+    const existing = await Order.findOne({ razorpayOrder_id: razorpayOrderId });
+    if (existing && !existing.course_ids?.length) {
+        console.error(
+            `[fulfilment] order ${razorpayOrderId} names no courses — refusing to mark it fulfilled. ` +
+            `Legacy orders need scripts/migrate-legacy-order-course-ids.js first.`
+        );
+        return {
+            order: existing,
+            alreadyFulfilled: false,
+            enrollmentResults: [],
+            skipped: "no-course-ids",
+        };
+    }
+
     const claimed = await Order.findOneAndUpdate(
         { razorpayOrder_id: razorpayOrderId, status: { $ne: "paid" } },
         {

@@ -254,7 +254,27 @@ Module 2 correctly fixed the *frontend* half of "paid but not enrolled" by makin
 **Fix**: add a Razorpay **webhook** endpoint (signature-verified against `RAZORPAY_WEBHOOK_SECRET`) as the authoritative fulfilment path, and make `verifyPayment` an idempotent fast-path. Requires the idempotency work in §2.9.
 
 
-**Resolved 2026-09-12**, and the prediction above was confirmed in live data. `scripts/reconcile-orders.js` asked Razorpay what it actually recorded against every unfinished order and found **5 orders where payment was captured and the student was never enrolled** — silent, unreported, exactly the shape described. (26 more were already paid and enrolled, needing only the new provenance fields; 33 were abandoned before payment, which is normal.) `POST /payment/webhook` is now the authoritative path, verified with the SDK's `validateWebhookSignature` over the raw request body. **Not yet live: it needs a real `RAZORPAY_WEBHOOK_SECRET` in `backend/.env` and a webhook registered in the Razorpay dashboard.** Until both exist the endpoint refuses every call with a 500 and logs why — deliberately loud, because a webhook that silently no-ops is indistinguishable from not having one.
+**Resolved 2026-09-12.** `scripts/reconcile-orders.js` asked Razorpay what it actually recorded against every unfinished order. The headline number needs stating carefully, because the first reading of it was wrong and the correction matters more than the original claim.
+
+5 orders showed a captured payment with the order still at `created`. That looks like 5 students charged and denied access. **It is not.** All 5 belong to *one* student, all for the same ₹788 course, and that student **is** enrolled in it (confirmed on both `userstudents.Courses` and `courses.enrolledStudents`). They are duplicate order records from repeated checkout attempts on 2025-06-25, not 5 people locked out. 26 further orders were already paid and enrolled and needed only the new provenance fields; 33 were abandoned before payment, which is normal.
+
+So the §2.8 *mechanism* is real and the webhook is the right fix for it — but **this database holds no confirmed case of a student paying and being denied access.** The finding stands on its logic, not on damage already done. `POST /payment/webhook` is now the authoritative path, verified with the SDK's `validateWebhookSignature` over the raw request body. **Not yet live: it needs a real `RAZORPAY_WEBHOOK_SECRET` in `backend/.env` and a webhook registered in the Razorpay dashboard.** Until both exist the endpoint refuses every call with a 500 and logs why — deliberately loud, because a webhook that silently no-ops is indistinguishable from not having one.
+
+#### Bringing the webhook live (one-time setup)
+
+The endpoint is written, e2e-verified, and inert until these steps are done. It must be reachable at a **public HTTPS URL** — Razorpay calls it server-to-server, so `localhost` cannot work.
+
+1. Generate a secret locally and keep it: `openssl rand -hex 32`. It is unrelated to `RAZORPAY_KEY_SECRET` and should not be reused from it.
+2. Razorpay Dashboard → **Settings → Webhooks → Create New Webhook**.
+3. **Webhook URL**: the deployed backend's public origin plus `/payment/webhook` (for the Render deployment, `https://<service>.onrender.com/payment/webhook`).
+4. **Secret**: paste the value from step 1.
+5. **Active Events**: tick **`payment.captured`**. That is the only event the handler acts on; anything else is acknowledged with a 200 and ignored, so subscribing to more is harmless but pointless.
+6. Save, then set the same value as `RAZORPAY_WEBHOOK_SECRET` in **both** `backend/.env` (local) and the Render service's environment variables (production). A mismatch fails every signature check and looks exactly like an attack in the logs.
+7. Verify: make a test payment and confirm the dashboard's webhook delivery log shows a 200. In the database the order should then carry `fulfilledAt` and `fulfilmentSource`. A `fulfilmentSource` of `"webhook"` means the browser never came back and the webhook is doing precisely the job it was added for.
+
+To exercise it against a local backend, expose port 8000 through a tunnel (`ngrok http 8000` or `cloudflared tunnel`) and point a **separate test-mode webhook** at that URL — never repoint the production one.
+
+Run `node scripts/reconcile-orders.js` periodically regardless. The webhook closes the gap going forward, but one that is misconfigured, paused, or has exhausted its retries still leaves orders stranded, and only reconciliation against Razorpay will surface them.
 
 ### 2.9 `verifyPayment` is neither idempotent nor bound to the paying user [READ]
 
@@ -565,7 +585,7 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 - [x] `Math.round` on paise; migrate prices to integer paise (§2.7). Done 2026-09-12. Prices are integer paise end to end; rupees survive only at the UI's input and display edges, both routed through `frontend/src/utils/money.js`. The schema validator rejects a fractional price outright, so the bug class is closed rather than the single instance. Applied to the database with `scripts/migrate-prices-to-paise.js` (13/13 courses, none fractional, marker recorded so a re-run can't multiply by 100 twice).
 - [x] **Razorpay webhook as the authoritative fulfilment path (§2.8).** Done 2026-09-12. `POST /payment/webhook`, signature-verified against `RAZORPAY_WEBHOOK_SECRET`, sharing one idempotent `fulfilOrder()` with `verifyPayment`. **Still needs a real secret in `backend/.env` and a webhook registered in the Razorpay dashboard — until then the endpoint refuses every call with a 500, by design.**
 - [x] Idempotency guard, amount verification, order-ownership check in `verifyPayment` (§2.9). Done 2026-09-12. It now fetches the payment from Razorpay and checks captured status, amount, and order linkage, asserts the order belongs to `req.student._id`, and compares signatures in constant time.
-- [ ] **Reconcile the 5 orders found paid-but-not-enrolled.** `scripts/reconcile-orders.js` (dry-run default) confirmed 5 orders where Razorpay captured payment and the student was never enrolled — the §2.8 failure in live data, not a hypothetical. 26 more are already paid and enrolled and need only the new provenance fields backfilled; 33 were abandoned before payment and are normal. Not yet applied.
+- [ ] **Backfill legacy `course_id` orders, then re-reconcile.** 37 of 64 orders predate the multi-course cart and store a singular `course_id` the current schema doesn't declare, so Mongoose reports `course_ids: []` and fulfilment enrolls nobody while still stamping the order paid. `fulfilOrder` now refuses to mark such an order fulfilled, and `scripts/migrate-legacy-order-course-ids.js` backfills the array (31 convertible; 6 skipped — their `course_id` is an empty array, so nothing is recoverable locally). **Not yet applied.** Until it runs, 5 orders carry `fulfilledAt`/`fulfilmentSource` written by a reconcile pass that enrolled nobody; those markers need clearing so reconciliation re-judges them.
 
 ### Module B5 — Restructure (§6)
 - [ ] `config/env.js` with fail-fast validation (§4.6).
