@@ -1,8 +1,7 @@
 import { ApiError } from "../utils/ApiError.js";
 import { Courses } from "../models/course.model.js";
 import { Progress } from "../models/progress.model.js";
-import { UserStudent } from "../models/user/userstudentmodel.js";
-import { UserTeacher } from "../models/user/userteachermodel.js";
+import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "./media.service.js";
 
 const COURSE_CARD_FIELDS = "thumbnail title description price category author";
@@ -35,7 +34,7 @@ export const createCourse = async (teacherId, { title, description, price, categ
         isLive,
     });
 
-    const teacher = await UserTeacher.findByIdAndUpdate(
+    const teacher = await User.findByIdAndUpdate(
         teacherId,
         { $push: { Courses: course._id } },
         { new: true }
@@ -48,7 +47,7 @@ export const createCourse = async (teacherId, { title, description, price, categ
 };
 
 export const getCoursesForStudent = async (studentId) => {
-    const student = await UserStudent.findById(studentId, { Courses: 1 }).populate({
+    const student = await User.findById(studentId, { Courses: 1 }).populate({
         path: "Courses",
         select: COURSE_CARD_FIELDS,
         populate: { path: "author", select: "name" },
@@ -59,7 +58,7 @@ export const getCoursesForStudent = async (studentId) => {
 };
 
 export const getCoursesForTeacher = async (teacherId) => {
-    const teacher = await UserTeacher.findById(teacherId, { Courses: 1 }).populate({
+    const teacher = await User.findById(teacherId, { Courses: 1 }).populate({
         path: "Courses",
         select: COURSE_CARD_FIELDS,
         populate: { path: "author", select: "name" },
@@ -84,7 +83,7 @@ export const getCoursesByCategory = async (category) => {
     return Promise.all(
         courses.map(async (course) => ({
             ...course._doc,
-            author: await UserTeacher.findById(course.author).select("name"),
+            author: await User.findById(course.author).select("name"),
         }))
     );
 };
@@ -93,7 +92,7 @@ export const getAllCourses = async () =>
     Courses.find().select("thumbnail title description price category rating");
 
 export const isStudentEnrolled = async (studentId, courseId) => {
-    const student = await UserStudent.findById(studentId);
+    const student = await User.findById(studentId);
     if (!student) throw new ApiError(404, "student not found");
 
     const course = await Courses.findById(courseId);

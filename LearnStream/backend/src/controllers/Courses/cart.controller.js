@@ -4,7 +4,7 @@ import { ApiResponse } from "../../utils/ApiResponse.js";
 import { Cart } from "../../models/cart.model.js";
 
 const getCart = asyncHandler(async (req, res) => {
-    const student_id = req.student._id;
+    const student_id = req.user._id;
 
     if (!student_id) {
         throw new ApiError(404, "Student Id not found");
@@ -22,7 +22,7 @@ const getCart = asyncHandler(async (req, res) => {
 });
 
 const addToCart = asyncHandler(async (req, res) => {
-  const studentId = req.student._id;
+  const studentId = req.user._id;
   const { courseId } = req.params;
   if(!studentId){
     throw new ApiError(401,"student not found");
@@ -54,7 +54,7 @@ const addToCart = asyncHandler(async (req, res) => {
 });
 
 const removeFromCart = asyncHandler(async (req, res) => {
-    const student_id = req.student._id;
+    const student_id = req.user._id;
     const courseId = req.params.courseId;
 
     if (!courseId) {
@@ -78,7 +78,7 @@ const removeFromCart = asyncHandler(async (req, res) => {
 });
 
 const inCart=asyncHandler(async (req,res)=>{
-  const student_id = req.student._id;
+  const student_id = req.user._id;
   const {courseId}=req.params;
 
   if(!courseId){

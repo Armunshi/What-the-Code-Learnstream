@@ -17,8 +17,7 @@ import "../models/lecture.model.js";
 import "../models/module.model.js";
 import "../models/order.model.js";
 import "../models/progress.model.js";
-import "../models/user/userstudentmodel.js";
-import "../models/user/userteachermodel.js";
+import "../models/user.model.js";
 
 const connectDB = async () => {
     try {

@@ -1,11 +1,11 @@
 import { Courses } from "../models/course.model.js";
-import { UserStudent } from "../models/user/userstudentmodel.js";
+import { User } from "../models/user.model.js";
 
 // Enrolls a student in each of `course_ids`, skipping ones that no longer
 // exist or the student is already enrolled in. Shared by the manual-enroll
 // endpoint and the payment-verification flow so both enroll the same way.
 const enrollStudentInCourses = async (studentId, course_ids) => {
-    const student = await UserStudent.findById(studentId);
+    const student = await User.findById(studentId);
     if (!student) {
         throw new Error("Student not found");
     }
@@ -28,7 +28,7 @@ const enrollStudentInCourses = async (studentId, course_ids) => {
         await Courses.findByIdAndUpdate(course_id, {
             $push: { enrolledStudents: studentId },
         });
-        await UserStudent.findByIdAndUpdate(studentId, {
+        await User.findByIdAndUpdate(studentId, {
             $push: { Courses: course_id },
         });
 

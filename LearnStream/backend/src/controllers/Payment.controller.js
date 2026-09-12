@@ -28,7 +28,7 @@ const instance = new Razorpay({
 });
 
 const createOrder = asyncHandler(async (req, res) => {
-  const user_id = req.student._id;
+  const user_id = req.user._id;
 
   const { course_ids, currency = 'INR' } = req.body;
 
@@ -118,7 +118,7 @@ const verifyPayment = asyncHandler(async (req, res) => {
   // The signature proves the payment is genuine, not that this caller owns it.
   // Without this check any authenticated student could drive the fulfilment of
   // another student's order (BACKEND_AUDIT.md §2.9).
-  if (order.user_id.toString() !== req.student._id.toString()) {
+  if (order.user_id.toString() !== req.user._id.toString()) {
     throw new ApiError(403, 'This order belongs to another account');
   }
 

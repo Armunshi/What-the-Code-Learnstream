@@ -46,8 +46,7 @@ const { app } = await import(`${BACKEND}/src/app.js`);
 await import(`${BACKEND}/src/db/index.js`);
 await mongoose.connect(`${process.env.MONGODB_URI}/guardtest`);
 
-const { UserTeacher } = await import(`${BACKEND}/src/models/user/userteachermodel.js`);
-const { UserStudent } = await import(`${BACKEND}/src/models/user/userstudentmodel.js`);
+const { User } = await import(`${BACKEND}/src/models/user.model.js`);
 const { Courses } = await import(`${BACKEND}/src/models/course.model.js`);
 const { Modules } = await import(`${BACKEND}/src/models/module.model.js`);
 const { Lectures } = await import(`${BACKEND}/src/models/lecture.model.js`);
@@ -66,8 +65,8 @@ const call = (method, urlPath, token, body) =>
   }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
 async function makeTeacher(name) {
-  const doc = await UserTeacher.create({
-    name, email: `${name}@t.com`, password: 'password123', username: name,
+  const doc = await User.create({
+    name, email: `${name}@t.com`, password: 'password123', role: 'teacher',
   });
   return { doc, token: doc.generateAccessToken() };
 }
@@ -124,13 +123,13 @@ check("owner's edit applied", (await Lectures.findById(bobs.lecture._id)).title 
 // requireEnrollment (§1.1 / §3.7): paid content must not be readable by a
 // signed-in student who never bought the course.
 // ---------------------------------------------------------------------------
-const outsider = await UserStudent.create({
-  name: 'mallory', email: 'mallory@s.com', password: 'password123', username: 'mallory',
+const outsider = await User.create({
+  name: 'mallory', email: 'mallory@s.com', password: 'password123', role: 'student',
 });
 const outsiderToken = outsider.generateAccessToken();
 
-const enrolled = await UserStudent.create({
-  name: 'erin', email: 'erin@s.com', password: 'password123', username: 'erin',
+const enrolled = await User.create({
+  name: 'erin', email: 'erin@s.com', password: 'password123', role: 'student',
 });
 const enrolledToken = enrolled.generateAccessToken();
 bobs.course.enrolledStudents.push(enrolled._id);

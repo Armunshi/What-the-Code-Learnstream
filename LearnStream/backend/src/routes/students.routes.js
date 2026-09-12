@@ -1,24 +1,13 @@
-import {Router} from "express"
-import { loginUserStudent, logoutUserStudent,  registerUserStudent, getCurrentStudent } from "../controllers/UserAuth/UserStudent.controller.js";
-import { verifyJWTStudent } from "../middleware/authstudent.middleware.js";
-const router =Router();
+import { Router } from "express"
+import { getCurrentUser, loginUser, logoutUser, registerUser } from "../controllers/UserAuth/auth.controller.js";
+import { requireRole, verifyAuth } from "../middleware/auth.js";
+import { ROLES } from "../models/user.model.js";
 
-router.route('/me').get(verifyJWTStudent, getCurrentStudent)
+const router = Router();
 
-router.route('/signup').post(
-    // injecting middle ware
-    // upload.fields([
-    //     {
-    //         name:"avatar", // front end field should also be avatar
-    //         maxCount: 1
-    //     },
-    //     {
-    //         name:"coverImage",
-    //         maxCount: 1
-    //     }
-    // ]),
-registerUserStudent)
-router.route('/login').post(loginUserStudent)
-// secured route
-router.route('/logout').post(logoutUserStudent)
+router.route('/me').get(verifyAuth, requireRole(ROLES.STUDENT), getCurrentUser)
+router.route('/signup').post(registerUser(ROLES.STUDENT))
+router.route('/login').post(loginUser(ROLES.STUDENT))
+router.route('/logout').post(logoutUser(ROLES.STUDENT))
+
 export default router

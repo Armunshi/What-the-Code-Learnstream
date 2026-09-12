@@ -24,7 +24,7 @@ const completedAssignmentSchema = new Schema({
 const ProgressSchema = new Schema({
     studentId:{
         type:Schema.Types.ObjectId,
-        ref:'UserStudent'
+        ref: 'User'
     },
     courseId:{
             type:Schema.Types.ObjectId,

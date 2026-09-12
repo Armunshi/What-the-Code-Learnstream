@@ -39,7 +39,7 @@ const assignmentSchema = new Schema({
         {
             studentId: {
                 type: Schema.Types.ObjectId,
-                ref: 'UserStudent',
+                ref: 'User',
                 required: true,
             },
             submittedAssignmentUrls: [
@@ -65,7 +65,7 @@ const assignmentSchema = new Schema({
         {
             studentId: {
                 type: Schema.Types.ObjectId,
-                ref: 'UserStudent',
+                ref: 'User',
                 required: true,
             },
             isChecked: {

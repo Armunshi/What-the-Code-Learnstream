@@ -435,6 +435,21 @@ there is no free-preview flow. That is why B5.4 could put `getLectureById`
 behind `requireEnrollment` without breaking anything, but it does mean the
 field is now inert.
 
+### 3.15 One orphaned id in a course's `enrolledStudents`
+
+Found 2026-09-12 while verifying the B5.6 user migration. Course
+`"Node and Express Tutorial"` holds an `enrolledStudents` id
+(`684e91c5412da09f3e620561`) that matches no user. Checked against both source
+collections **before** the migration: it existed in neither, so this predates
+the merge and was not caused by it — a student account was deleted at some
+point without pulling its id out of the courses it was enrolled in.
+
+The same shape as the §2.3 orphans B3 cleaned up, in a place that pass did not
+look. Harmless today (`populate` skips it, the enrollment check is an equality
+test that simply never matches) but it inflates any count taken from the array
+length. One `$pull` fixes it; worth folding into a general referential-integrity
+sweep rather than patching alone, since nothing prevents the next one.
+
 ---
 
 ## 4. P3 — Hygiene, dead code, consistency
@@ -641,7 +656,19 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
   `scripts/*.js` still call `dotenv.config()` themselves and were left alone on purpose. They are standalone operational tools, and routing them through `config/env.js` would make a cleanup script that needs only `MONGODB_URI` refuse to run without Razorpay keys.
 
 **Verification**: e2e 13 passed / 2 failed — unchanged baseline. This also exercises the path where the environment arrives through `spawn`'s `env` rather than a `.env` file (`global-setup.ts:56`), which still works because dotenv does not overwrite already-set variables. Server boots clean and logs the real port; live smoke checks pass.
-- [ ] Unified `User` model + `role` claim; collapse three auth middlewares into one (§5.4).
+- [x] Unified `User` model + `role` claim; collapse three auth middlewares into one (§5.4) — 2026-09-12. One `User` model replaces `userstudentmodel.js` and `userteachermodel.js`; one `verifyAuth` + `requireRole` replaces `authstudent`, `authteacher` and `authcombined`; one `auth.controller.js` replaces the two near-identical auth controllers. Seven files deleted, `role` is now a field and a JWT claim, and the route table says which role each endpoint needs instead of that being implied by which middleware was imported.
+
+  **A plain `role` field, not a Mongoose discriminator.** §6.2 suggested a discriminator, but that keeps deriving role from something implicit — `__t` rather than the collection name — which is the same shape of problem §5.4 describes. An explicit field is what the guards read and what the token carries, so there is one answer to "what is this user".
+
+  **Migration** (`scripts/migrate-users-to-single-collection.js`, dry-run by default, marker-guarded): 83 → **81 users** (53 students, 28 teachers). `_id` values are preserved exactly — courses, orders, progress, carts and assignment submissions all reference users by `_id`, and generating new ones would have silently orphaned every one of them. Passwords are copied through the driver, not through Mongoose documents, because the pre-save hook would otherwise re-hash an already-hashed value and lock all 81 accounts out. Source collections are left in place, so the whole thing is reversible by dropping `users`.
+
+  The two byte-identical cross-collection email collisions were resolved **by explicit decision, not heuristic**: the teacher side of `12@12.com` and `Prajyot@n.com` each owned zero courses and was deleted. The script re-verifies that shape and aborts if either teacher has since acquired a course. Four remaining addresses were normalised to lowercase, closing §4.5's "`A@b.com` and `a@b.com` are two accounts despite the unique index". **50 live sessions were invalidated**, which is unavoidable: old tokens carry no `role` claim and the middleware that used to infer one no longer exists.
+
+  §4.5's "no password length constraint" is also closed, but **not** with schema `minlength` — bcrypt output is always 60 characters, so a minlength on the stored value passes for every password including a one-character one. The check runs in the pre-save hook against the raw value, and throws `ApiError(400)` rather than a bare `Error`, which the handler would have turned into a 500.
+
+  **One real bug was introduced and caught by the suite**: `verifyAuth` initially read a cookie named `accessToken`, but the app sets `studentAccessToken`/`teacherAccessToken`. Header-bearing calls succeeded while cookie-bearing ones 401'd, so only *some* requests on a page failed — `course-detail-view.spec.ts` caught it as "got 401, 401, 200, 200". Exactly the intermittent-looking failure that is miserable to diagnose in production.
+
+**Verification**: e2e 13 passed / 2 failed — back to the unchanged baseline after the cookie fix. `verify-ownership-guards.mjs` 16/16 against the unified model. Against the migrated database: 0 duplicate emails, 0 users without a role, 0 surviving refresh tokens, 0 non-lowercase emails, `{email: 1}` unique index present, and every foreign key resolves — 13 courses with 0 dangling authors, 64 orders with 0 dangling `user_id`, `populate('author')` returning a teacher. One dangling `enrolledStudents` id was found and confirmed to **predate** this work (§3.15). Live end-to-end: signup normalises `B5Check@Example.COM`, login with different casing succeeds, the JWT carries `role`, `/me` works, a student hits 403 on a teacher route, a wrong-role login 404s, a duplicate email across roles 409s, and a short password 400s. Test accounts removed afterwards; back to exactly 81 users.
 - [x] Service layer extraction; thin controllers (§5.2) — 2026-09-12. `services/` now holds seven modules and no `req`/`res` reaches any of them. Three already existed as services in everything but location — `fulfilment.js` and `enrollment.js` moved out of `utils/`, and `cloudinary.js` split into `config/cloudinary.js` (credentials) and `services/media.service.js` (operations). Four are new: course, module, lecture, assignment. `utils/` is left holding `ApiError`, `ApiResponse` and `asyncHandler`, which is what it should always have been.
 
   The four course-content controllers went from **909 lines to 466**, against 727 lines of service. Each handler is now parse → call service → respond; the multi-collection writes §5.2 blamed for §1.1, §1.2 and §2.3 — the module cascade, lecture creation touching three collections, assignment creation and deletion — are single named functions callable without an HTTP request, which is what makes them testable in B6.

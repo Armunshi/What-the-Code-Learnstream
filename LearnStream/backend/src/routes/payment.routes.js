@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { verifyJWTStudent } from "../middleware/authstudent.middleware.js";
+import { requireRole, verifyAuth } from "../middleware/auth.js";
+import { ROLES } from "../models/user.model.js";
 import { createOrder, verifyPayment, razorpayWebhook } from "../controllers/Payment.controller.js";
 
 const router = Router();
 
-router.post('/create-order',verifyJWTStudent,createOrder);
-router.post('/verify',verifyJWTStudent,verifyPayment);
+router.post('/create-order',verifyAuth, requireRole(ROLES.STUDENT),createOrder);
+router.post('/verify',verifyAuth, requireRole(ROLES.STUDENT),verifyPayment);
 
 // Deliberately unauthenticated: Razorpay calls this server-to-server and has
 // no student session or access token to present. Its authenticity comes from

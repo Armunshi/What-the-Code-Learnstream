@@ -9,7 +9,7 @@ import { resolverFor } from "./courseContext.js";
  * Composed at the route so authorization is visible in the route table and
  * cannot be forgotten inside a handler body — it was missing from at least
  * four handlers that needed it (BACKEND_AUDIT.md §5.3). Must run after
- * verifyJWT, which is what sets req.teacher.
+ * verifyAuth, which is what sets req.user.
  *
  * Everything it resolved is attached to the request (req.course, req.module,
  * req.lecture, req.assignment) so the handler does not re-query and — more
@@ -20,13 +20,13 @@ export const requireCourseOwner = (from) => {
     const resolve = resolverFor("requireCourseOwner", from);
 
     return asyncHandler(async (req, res, next) => {
-        if (!req.teacher?._id) {
-            throw new ApiError(401, "Teacher authentication is required");
+        if (req.user?.role !== "teacher") {
+            throw new ApiError(403, "This action requires the teacher role");
         }
 
         const resolved = await resolve(req);
 
-        if (resolved.course.author.toString() !== req.teacher._id.toString()) {
+        if (resolved.course.author.toString() !== req.user._id.toString()) {
             throw new ApiError(403, "You are not authorized to modify this course");
         }
 

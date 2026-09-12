@@ -19,13 +19,13 @@ import { resolverFor } from "./courseContext.js";
  * preview shows. The line this guard draws is the same one B1 drew: the
  * secret is the Cloudinary id and the media URL, not the syllabus.
  *
- * Must run after an auth middleware that sets req.teacher or req.student.
+ * Must run after verifyAuth, which is what sets req.user.
  */
 export const requireEnrollment = (from) => {
     const resolve = resolverFor("requireEnrollment", from);
 
     return asyncHandler(async (req, res, next) => {
-        if (!req.teacher?._id && !req.student?._id) {
+        if (!req.user?._id) {
             throw new ApiError(401, "Authentication is required");
         }
 
@@ -33,12 +33,12 @@ export const requireEnrollment = (from) => {
         const { course } = resolved;
 
         const isOwner =
-            req.teacher?._id && course.author.toString() === req.teacher._id.toString();
+            req.user.role === "teacher" && course.author.toString() === req.user._id.toString();
 
         const isEnrolled =
-            req.student?._id &&
+            req.user.role === "student" &&
             course.enrolledStudents.some(
-                (studentId) => studentId.toString() === req.student._id.toString()
+                (studentId) => studentId.toString() === req.user._id.toString()
             );
 
         if (!isOwner && !isEnrolled) {

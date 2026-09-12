@@ -42,9 +42,9 @@ const getCourseModules = asyncHandler(async (req, res) => {
     // gate at the route.
     const course = await moduleService.getCourseWithModules(course_id);
 
-    const isOwner = req.teacher && course.author.toString() === req.teacher._id.toString();
-    const isEnrolled = req.student && course.enrolledStudents.some(
-        (studentId) => studentId.toString() === req.student._id.toString()
+    const isOwner = req.user?.role === "teacher" && course.author.toString() === req.user._id.toString();
+    const isEnrolled = req.user?.role === "student" && course.enrolledStudents.some(
+        (studentId) => studentId.toString() === req.user._id.toString()
     );
 
     const modules = isOwner || isEnrolled

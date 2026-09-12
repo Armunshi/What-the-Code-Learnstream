@@ -5,7 +5,7 @@ const cartSchema = new Schema(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "UserStudent", // Reference your UserStudent model
+      ref: 'User',
       required: true,
       unique: true,       // One cart per student
     },

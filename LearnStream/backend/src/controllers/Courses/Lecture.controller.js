@@ -59,7 +59,7 @@ const markLectureCompleted = asyncHandler(async (req, res) => {
     const { courseId, lectureId } = req.params;
 
     const progress = await lectureService.markLectureCompleted({
-        studentId: req.student?._id,
+        studentId: req.user._id,
         courseId,
         lectureId,
     });
@@ -69,7 +69,7 @@ const markLectureCompleted = asyncHandler(async (req, res) => {
 
 const getLecturesCompleted = asyncHandler(async (req, res) => {
     const { courseId } = req.params;
-    const studentId = req.student?._id;
+    const studentId = req.user._id;
 
     if (!studentId) throw new ApiError(401, "Unauthorized access");
 

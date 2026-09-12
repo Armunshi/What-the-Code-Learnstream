@@ -33,7 +33,7 @@ const courseSchema = new Schema({
     },
     author: {
         type: Schema.Types.ObjectId,
-        ref: "UserTeacher",
+        ref: 'User',
         required: true
     },
     category: {
@@ -46,7 +46,7 @@ const courseSchema = new Schema({
     },
     enrolledStudents: [{
         type: Schema.Types.ObjectId,
-        ref: "UserStudent"
+        ref: 'User'
     }],
     lectures: [{
         type: Schema.Types.ObjectId,

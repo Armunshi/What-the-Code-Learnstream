@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 const orderSchema = new mongoose.Schema({
   course_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: "Courses", required: true }],
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: "UserStudent", required: true },
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   // Unique because it is the idempotency key for fulfilment: both the browser
   // callback and the Razorpay webhook look an order up by this id and race to
   // claim it (BACKEND_AUDIT.md §2.8/§2.9). Two orders sharing one Razorpay id

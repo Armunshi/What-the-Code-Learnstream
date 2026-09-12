@@ -30,7 +30,7 @@ const submitAssignment = asyncHandler(async (req, res) => {
     if (!files || files.length === 0) throw new ApiError(400, "no assignments uploaded");
 
     await assignmentService.submitAssignment(req.assignment, {
-        studentId: req.student._id,
+        studentId: req.user._id,
         files,
     });
 
@@ -40,7 +40,7 @@ const submitAssignment = asyncHandler(async (req, res) => {
 const getAssignmentById = asyncHandler(async (req, res) => {
     const assignment = await assignmentService.getAssignmentForStudent(
         req.assignment._id,
-        req.student._id
+        req.user._id
     );
 
     return res.status(200).json(new ApiResponse(200, assignment, "Assignment sent succesfully"));
@@ -64,7 +64,7 @@ const markAssignmentCompleted = asyncHandler(async (req, res) => {
     const { courseId, assignmentId } = req.params;
 
     await assignmentService.markAssignmentCompleted({
-        studentId: req.student?._id,
+        studentId: req.user._id,
         courseId,
         assignmentId,
     });

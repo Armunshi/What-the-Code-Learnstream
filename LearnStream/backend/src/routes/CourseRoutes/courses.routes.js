@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { requireRole, verifyAuth } from "../../middleware/auth.js";
+import { ROLES } from "../../models/user.model.js";
 import {
     checkEnrollment,
     CourseProgress,
@@ -12,39 +14,36 @@ import {
     getEnrolledStudents, 
  } from "../../controllers/Courses/Course.controller.js";
 
-import { verifyJWT } from "../../middleware/authteacher.middleware.js";
 import { upload } from "../../middleware/multer.middleware.js";
-import { verifyJWTStudent } from "../../middleware/authstudent.middleware.js";
-import { verifyJWTCombined } from "../../middleware/authcombined.middleware.js";
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
 import { addToCart, getCart, inCart, removeFromCart } from "../../controllers/Courses/cart.controller.js";
 const router = Router();
 
 //  Cart Routes
-router.route('/cart').get(verifyJWTStudent, getCart);
+router.route('/cart').get(verifyAuth, requireRole(ROLES.STUDENT), getCart);
 router.route('/cart/:courseId')
-      .post(verifyJWTStudent, addToCart)
-      .delete(verifyJWTStudent, removeFromCart)
-      .get(verifyJWTStudent, inCart);
+      .post(verifyAuth, requireRole(ROLES.STUDENT), addToCart)
+      .delete(verifyAuth, requireRole(ROLES.STUDENT), removeFromCart)
+      .get(verifyAuth, requireRole(ROLES.STUDENT), inCart);
 
 //  Static Routes FIRST
 router.route('/getallCourses').get(getAllCourses);
-router.route('/student/:student_id').get(verifyJWTStudent, getCourseByStudentId);
-router.route('/teacher/:teacher_id').get(verifyJWT, getCourseByTeacherId);
+router.route('/student/:student_id').get(verifyAuth, requireRole(ROLES.STUDENT), getCourseByStudentId);
+router.route('/teacher/:teacher_id').get(verifyAuth, requireRole(ROLES.TEACHER), getCourseByTeacherId);
 router.route('/').get(getCoursesByCategory); // category filter
-router.route('/').post(verifyJWT, upload.single('thumbnail'), createCourse);
+router.route('/').post(verifyAuth, requireRole(ROLES.TEACHER), upload.single('thumbnail'), createCourse);
 
 //  Dynamic Routes NEXT (Keep These At Bottom)
 router.route('/:courseId/getTeacher').get(getCourseOwner);
-router.route('/:courseId/enrolled').get(verifyJWTCombined, checkEnrollment);
-router.route('/:courseId/progress').get(verifyJWTCombined, CourseProgress);
-router.route('/:courseId/students').get(verifyJWT, requireCourseOwner('course'), getEnrolledStudents);
+router.route('/:courseId/enrolled').get(verifyAuth, checkEnrollment);
+router.route('/:courseId/progress').get(verifyAuth, CourseProgress);
+router.route('/:courseId/students').get(verifyAuth, requireRole(ROLES.TEACHER), requireCourseOwner('course'), getEnrolledStudents);
 router.route('/:courseId').get(getCourseById); // LAST
 
 
 // Course Cart 
 
 // Assignments
-// router.route('/:course_id/free-previews').get( verifyJWT, getFreePreviews);lecture_
+// router.route('/:course_id/free-previews').get( verifyAuth, requireRole(ROLES.TEACHER), getFreePreviews);lecture_
 
 export default router

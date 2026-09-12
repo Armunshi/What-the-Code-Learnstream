@@ -15,7 +15,7 @@ const createCourse = asyncHandler(async (req, res) => {
         throw new ApiError(400, "thumbnail file is required");
     }
 
-    const course = await courseService.createCourse(req.teacher._id, {
+    const course = await courseService.createCourse(req.user._id, {
         title,
         description,
         price,
@@ -28,13 +28,13 @@ const createCourse = asyncHandler(async (req, res) => {
 });
 
 const getCourseByStudentId = asyncHandler(async (req, res) => {
-    const courses = await courseService.getCoursesForStudent(req.student._id);
+    const courses = await courseService.getCoursesForStudent(req.user._id);
 
     return res.status(200).json(new ApiResponse(200, courses, "student courses succesfully sent "));
 });
 
 const getCourseByTeacherId = asyncHandler(async (req, res) => {
-    const courses = await courseService.getCoursesForTeacher(req.teacher._id);
+    const courses = await courseService.getCoursesForTeacher(req.user._id);
 
     return res.status(200).json(new ApiResponse(200, courses, "teachercourses succesfully sent "));
 });
@@ -62,7 +62,7 @@ const getAllCourses = asyncHandler(async (req, res) => {
 });
 
 const checkEnrollment = asyncHandler(async (req, res) => {
-    const enrolled = await courseService.isStudentEnrolled(req.student._id, req.params.courseId);
+    const enrolled = await courseService.isStudentEnrolled(req.user._id, req.params.courseId);
 
     return res.status(200).json(new ApiResponse(200, enrolled, "Student Already enrolled"));
 });
