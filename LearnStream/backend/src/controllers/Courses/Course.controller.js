@@ -2,7 +2,7 @@ import { Courses } from "../../models/course.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../../utils/cloudinary.js";
+import { uploadOnCloudinary } from "../../services/media.service.js";
 import { UserStudent } from "../../models/user/userstudentmodel.js";
 import { Progress } from "../../models/progress.model.js";
 import { UserTeacher } from "../../models/user/userteachermodel.js";

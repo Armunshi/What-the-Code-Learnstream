@@ -27,7 +27,7 @@ import { Assignments } from "../src/models/assignment.model.js";
 import { Courses } from "../src/models/course.model.js";
 import { Lectures } from "../src/models/lecture.model.js";
 import { Modules } from "../src/models/module.model.js";
-import { deleteMediaFromCloudinary } from "../src/utils/cloudinary.js";
+import { deleteMediaFromCloudinary } from "../src/services/media.service.js";
 
 const APPLY = process.argv.includes("--apply");
 

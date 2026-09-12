@@ -1,6 +1,6 @@
 import { Order } from "../models/order.model.js";
 import { Cart } from "../models/cart.model.js";
-import { enrollStudentInCourses } from "./enrollment.js";
+import { enrollStudentInCourses } from "./enrollment.service.js";
 
 // The single place an order becomes "paid" and the student becomes enrolled.
 //

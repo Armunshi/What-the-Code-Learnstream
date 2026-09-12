@@ -6,7 +6,7 @@ import { Order } from '../models/order.model.js';
 import { Courses } from '../models/course.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
-import { fulfilOrder } from '../utils/fulfilment.js';
+import { fulfilOrder } from '../services/payment.service.js';
 import crypto from 'crypto';
 import { env } from '../config/env.js';
 

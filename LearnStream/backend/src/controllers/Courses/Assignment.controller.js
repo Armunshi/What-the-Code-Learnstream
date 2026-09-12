@@ -2,7 +2,7 @@ import { Assignments } from "../../models/assignment.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary } from "../../utils/cloudinary.js";
+import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary } from "../../services/media.service.js";
 import { Modules } from "../../models/module.model.js";
 import fs from "fs/promises";
 import { Progress } from "../../models/progress.model.js";

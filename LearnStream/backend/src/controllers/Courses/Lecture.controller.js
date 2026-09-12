@@ -3,7 +3,7 @@ import { Lectures } from "../../models/lecture.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { deleteMediaFromCloudinary, uploadOnCloudinary } from "../../utils/cloudinary.js";
+import { deleteMediaFromCloudinary, uploadOnCloudinary } from "../../services/media.service.js";
 import { Progress } from "../../models/progress.model.js";
 import { Modules } from "../../models/module.model.js";
 

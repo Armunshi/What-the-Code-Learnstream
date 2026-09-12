@@ -1,12 +1,5 @@
-import {v2 as cloudinary} from "cloudinary"
 import fs from "fs"
-import { env } from "../config/env.js"
-
-cloudinary.config({
-  cloud_name: env.cloudinary.cloudName,
-  api_key: env.cloudinary.apiKey,
-  api_secret: env.cloudinary.apiSecret,
-});
+import { cloudinary } from "../config/cloudinary.js"
 
 const uploadOnCloudinary = async (localFilePath) => {
     try {
@@ -75,8 +68,5 @@ const deleteMediaFromCloudinary = async (publicId, resourceType = "image") => {
       throw new Error("failed to delete assest from cloudinary");
     }
   };
-
-// basically in the end we are exporting the uploadonCloudinary function which returns 
-// a basic response which we send back 
 
 export {uploadOnCloudinary,uploadMultipleFilesOnCloudinary,deleteMediaFromCloudinary}

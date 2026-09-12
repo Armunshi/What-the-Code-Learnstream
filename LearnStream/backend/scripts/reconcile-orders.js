@@ -43,8 +43,8 @@ import Razorpay from "razorpay";
 import { DB_NAME } from "../src/constants.js";
 import { Order } from "../src/models/order.model.js";
 import { UserStudent } from "../src/models/user/userstudentmodel.js";
-import { fulfilOrder } from "../src/utils/fulfilment.js";
-import { enrollStudentInCourses } from "../src/utils/enrollment.js";
+import { fulfilOrder } from "../src/services/payment.service.js";
+import { enrollStudentInCourses } from "../src/services/enrollment.service.js";
 
 const APPLY = process.argv.includes("--apply");
 
