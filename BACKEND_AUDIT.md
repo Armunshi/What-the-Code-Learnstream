@@ -260,6 +260,21 @@ Module 2 correctly fixed the *frontend* half of "paid but not enrolled" by makin
 
 That correction was itself incomplete, and the third reading is the one that matters. Those 5 orders stored a singular `course_id` the current schema doesn't declare, so every local signal about them was unreliable. Recovering the real course ids — from Razorpay's order `notes`, which `createOrder` has always populated — and then comparing each paid order against the student's *actual* enrollments found **3 orders, across 2 different students, that were paid and genuinely never enrolled**: one ₹78 course and two orders for a ₹50,000 course. All three were repaired on 2026-09-12; both students now hold what they paid for.
 
+**No real money was ever involved — recorded 2026-09-12 so these figures are
+not re-read as revenue.** This project has only ever run Razorpay in **test
+mode**: both `backend/.env` and `e2e/.env.e2e` carry an `rzp_test_`-prefixed key
+id, and a live integration would use `rzp_live_`. The accounts are demo users,
+on the deployed site as well as locally. So the "₹50,000 course" above is a
+test-mode payment against a test account, and **nobody was ever charged real
+money, and no real student was ever denied access they had paid for.**
+
+This does not reduce the finding. §2.8 and §2.9 are real defects, the
+reconciliation that found them was worth doing, and the atomic-claim fulfilment
+that replaced the client-driven path is the right design. But the severity is
+"this *would* cause silent revenue loss the first time a real payment is taken",
+not "this lost revenue". Anyone reading the three-orders number later should
+treat it as a rehearsal that worked, not an incident that was survived.
+
 **So §2.8's damage is real and present in this database, not merely logical.** The reason it stayed hidden through two passes is the lesson worth keeping: those orders were marked `paid`, carried a `fulfilledAt`, and named a course — every marker said "fulfilled" while the student held nothing. No status field can detect that. Only joining orders against real enrollments can, which is why `reconcile-orders.js` now examines **every** order rather than only those that look unfinished, and reports a `DRIFTED` bucket separately from missing-marker backfills.
 
 Final state after reconciliation: 0 lost, 0 drifted, 0 orders missing `course_ids` (was 37 of 64), 31 settled, 33 abandoned before payment (normal). `POST /payment/webhook` is now the authoritative path, verified with the SDK's `validateWebhookSignature` over the raw request body. **Not yet live: it needs a real `RAZORPAY_WEBHOOK_SECRET` in `backend/.env` and a webhook registered in the Razorpay dashboard.** Until both exist the endpoint refuses every call with a 500 and logs why — deliberately loud, because a webhook that silently no-ops is indistinguishable from not having one.
