@@ -19,6 +19,15 @@ const createCourse = asyncHandler(async (req,res)=> {
     if (!title || !description || !price || !req.teacher || !category){
         throw new ApiError(400,'Basic info about the course required')
     }
+
+    // `price` arrives as a multipart string and is stored as integer paise
+    // (BACKEND_AUDIT.md §2.7) — the frontend converts the teacher's rupee
+    // input before sending. Parsing and checking it here turns a fractional or
+    // non-numeric price into a clear 400 instead of a Mongoose ValidationError.
+    const priceInPaise = Number(price);
+    if (!Number.isInteger(priceInPaise) || priceInPaise < 0){
+        throw new ApiError(400,'Price must be a whole number of paise (₹499 is sent as 49900)')
+    }
     const existingCourse = await Courses.findOne({ title: title });
     if (existingCourse) {
         throw new ApiError(400, "Course Already exists");
@@ -45,7 +54,7 @@ const createCourse = asyncHandler(async (req,res)=> {
         thumbnail:thumbnailUrlString,
         title ,
         description,
-        price,
+        price:priceInPaise,
         author:req.teacher._id,
         category,
         isLive: isLive,

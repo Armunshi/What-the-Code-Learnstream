@@ -186,7 +186,7 @@ const ViewStudentModules = () => {
             <div className="flex gap-2 mt-2 flex-wrap">
               {/* <EnrollButton course_id={course_id}  /> */}
               <AddToCartBtn course_id={course_id} enrolled = {enrolled} />
-              <BuyCourseButton course_id={course_id} amount={course?.price} enrolled = {enrolled} />
+              <BuyCourseButton course_id={course_id} enrolled = {enrolled} />
             </div>
           )}
         </div>

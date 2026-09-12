@@ -33,7 +33,13 @@ const createOrder = asyncHandler(async (req, res) => {
   if (courses.length !== course_ids.length) {
     throw new ApiError(404, 'One or more courses could not be found');
   }
-  const amount = courses.reduce((sum, course) => sum + course.price, 0) * 100; // paise
+  // Course prices are already integer paise (BACKEND_AUDIT.md §2.7), so this
+  // is a plain sum with no rupee conversion. Math.round is belt-and-braces
+  // against any legacy fractional price predating the migration — Razorpay
+  // rejects a non-integer amount outright.
+  const amount = Math.round(
+    courses.reduce((sum, course) => sum + course.price, 0)
+  );
 
   const receipt = `rcpt-${Date.now()}`;
 

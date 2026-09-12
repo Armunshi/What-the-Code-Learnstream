@@ -2,6 +2,7 @@ import React from 'react'
 import { Card } from "flowbite-react";
 // import axios from '../api/axios';
 import { Link,useNavigate } from 'react-router-dom';
+import { formatINR } from '../utils/money';
 const CourseComp = ({setCourse_id, courses=[],ButtonName,buttonHandler,errRef,errMsg}) => {
   
   const handleButtonClick=(e,courseId) => {
@@ -43,7 +44,7 @@ const CourseComp = ({setCourse_id, courses=[],ButtonName,buttonHandler,errRef,er
           </a>
           <p className="text-sm text-gray-600">Instructor: {course?.author?.name || "Unknown"}</p>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-2xl font-bold text-gray-900 dark:text-white">${course?.price}</span>
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">{formatINR(course?.price)}</span>
             <Link
               onClick={(e) => handleButtonClick(e, course?._id)}
               className="rounded-lg bg-brand-dark px-5 py-2.5 text-center text-sm font-medium text-white hover:bg-brand-dark/90 focus:outline-none focus:ring-4 focus:ring-brand/30"

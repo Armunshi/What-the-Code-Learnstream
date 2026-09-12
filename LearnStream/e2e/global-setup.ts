@@ -99,7 +99,7 @@ export default async function globalSetup(): Promise<void> {
     {
       title: `E2E Fixture Course ${runId}`,
       description: 'Seeded by the Playwright e2e suite. Not a real course.',
-      price: '499',
+      price: '49900',
       category: 'E2E-A',
     },
     path.join(ASSETS_DIR, 'placeholder-thumbnail.jpg')
@@ -115,7 +115,7 @@ export default async function globalSetup(): Promise<void> {
     {
       title: `E2E Fixture Course 2 ${runId}`,
       description: 'Seeded by the Playwright e2e suite. Not a real course.',
-      price: '399',
+      price: '39900',
       category: 'E2E-B',
     },
     path.join(ASSETS_DIR, 'placeholder-thumbnail.jpg')

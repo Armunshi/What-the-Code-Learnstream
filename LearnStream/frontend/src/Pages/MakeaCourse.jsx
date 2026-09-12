@@ -4,6 +4,7 @@ import axios from "../api/axios"; // Ensure this path matches your file structur
 import { useNavigate } from "react-router-dom";
 import { useContext } from "react";
 import AuthContext from "../contexts/AuthProvider";
+import { rupeesToPaise } from "../utils/money";
 
 
 function MakeaCourse() {
@@ -46,7 +47,10 @@ function MakeaCourse() {
       courseData.append("thumbnail", thumbnail); // Attach the file
       courseData.append("title", courseTitle); // Add title
       courseData.append("description", courseDescription); // Add description
-      courseData.append("price", coursePrice); // Add price
+      // The teacher types rupees; the API and database speak integer paise
+      // (BACKEND_AUDIT.md §2.7). This is the only place the course form
+      // crosses that boundary.
+      courseData.append("price", rupeesToPaise(coursePrice));
       courseData.append("category", courseCategory); // Add category
       courseData.append("isLive", Live);
 
@@ -117,12 +121,14 @@ function MakeaCourse() {
         </div>
         <div>
           <div className="mb-2 block">
-            <Label htmlFor="course-price" value="Course Price" />
+            <Label htmlFor="course-price" value="Course Price (₹)" />
           </div>
           <TextInput
             id="course-price"
             type="number"
-            placeholder="Enter course price"
+            min="0"
+            step="0.01"
+            placeholder="Enter course price in rupees"
             value={coursePrice}
             onChange={(e) => setCoursePrice(e.target.value)}
             required

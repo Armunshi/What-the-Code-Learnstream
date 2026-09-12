@@ -19,9 +19,19 @@ const courseSchema =new Schema({
             type:String, //cloudinary usrl
             required:true
         },
+        // Integer paise, never rupees and never a float (BACKEND_AUDIT.md §2.7).
+        // ₹499 is stored as 49900. Rupees exist only at the input and display
+        // edges of the frontend; every amount crossing the API or reaching
+        // Razorpay is paise. Storing rupees as a Number allowed 19.99, and
+        // 19.99 * 100 is 1998.9999999999998 in IEEE-754, which Razorpay rejects.
         price:{
             type:Number,
-            required:true
+            required:true,
+            min:[0,'Price cannot be negative'],
+            validate:{
+                validator:Number.isInteger,
+                message:'Price must be a whole number of paise (₹499 → 49900), not rupees or a fraction'
+            }
         },
         author:{
             type:Schema.Types.ObjectId,
