@@ -12,6 +12,26 @@ function ModuleForm() {
   const [bannerError, setBannerError] = useState('');
   const [bannerSuccess, setBannerSuccess] = useState('');
 
+  // handleSubmit below sends one module/lecture/assignment at a time, awaited
+  // in sequence — a course with 2 modules and a few lectures/assignments each
+  // is easily 6-10 separate requests behind one click of Submit, each
+  // including a real Cloudinary upload. Closing the tab partway through
+  // doesn't corrupt anything already sent (each request either finished
+  // server-side or never started), but everything queued after that point
+  // silently never gets created — no error, because the request was never
+  // made. This reproduced for real: a "trees" module and both modules'
+  // assignments were lost this way. The browser can't be stopped from
+  // closing, but it can ask first while `submitting` is true.
+  useEffect(() => {
+    if (!submitting) return;
+    const warnBeforeClose = (e) => {
+      e.preventDefault();
+      e.returnValue = ''; // required for the confirmation prompt in most browsers
+    };
+    window.addEventListener('beforeunload', warnBeforeClose);
+    return () => window.removeEventListener('beforeunload', warnBeforeClose);
+  }, [submitting]);
+
   const owner = async (course_id) => {
     try {
       const response = await axios.get(`/courses/${course_id}/getTeacher`);

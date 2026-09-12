@@ -1062,6 +1062,54 @@ that's a plausible mechanism, not a confirmed one.
 **Verification**: `vite build` succeeds cleanly with both changes. e2e 13
 passed / 2 failed — unchanged baseline.
 
+### §3.20 — Closing the tab mid-submit silently drops modules never sent, not corrupts them
+
+Investigated 2026-09-12 against a real report: a teacher created a course
+with two modules (Linked Lists, Trees), each with lectures and an
+assignment, clicked Submit, then closed the tab (`Ctrl+W`) while it was
+still working. Afterward the course existed with only the Linked Lists
+module — no Trees module, no assignments on either.
+
+**Checked the database directly rather than trust the access log alone, and
+it corrected the first read.** The log's one aborted-looking line
+(`POST .../lectures` with status `-`, morgan's way of saying the connection
+closed before the response could be written) looked like a failed write.
+It wasn't: the database shows that exact lecture — "Middle Of linked
+lists" — fully saved and correctly linked into its module. The server had
+already finished the write; only the *response* never reached a browser
+that had already gone. A dash in the log means the client left, not that the
+operation failed — worth remembering the next time one shows up.
+
+**What's actually missing was never sent at all.** There is no
+`POST .../modules` for a second module anywhere in the log, and no
+assignment-upload request anywhere. `Courseupdatation.jsx`'s `handleSubmit`
+sends one module, then that module's lectures, then its assignments, each
+awaited in sequence — a two-module course with a couple of lectures and an
+assignment apiece is easily 6-10 separate requests behind one click of
+Submit, each including a real Cloudinary upload. Closing the tab partway
+through doesn't corrupt anything already sent; it just means everything
+still queued after that point never gets asked for. Nothing to reconcile
+server-side — there's no partial write, no orphan, because the requests
+that would have created the Trees module and the assignments never left the
+browser.
+
+**Fix**: a `beforeunload` handler, gated on the `submitting` state that
+already exists and already spans exactly this window, warns before the tab
+closes while a submission is still running. The per-item upload progress
+shown during submission (`lecture.progress` / `assignment.progress`) was
+already there; the one missing piece was telling the user not to leave
+while it's in flight.
+
+**Not fixed, and worth its own change**: there is still no way to resume a
+partially-submitted course, and no server-side batching that would make the
+whole multi-module submission succeed or fail as one unit. The
+`beforeunload` warning prevents the accident; it doesn't make the operation
+atomic or resumable. If this needs to be bulletproof rather than
+warned-against, that's the next step, not this one.
+
+**Verification**: `vite build` succeeds cleanly. e2e 13 passed / 2 failed —
+unchanged baseline.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
