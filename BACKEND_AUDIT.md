@@ -940,6 +940,64 @@ loop-reloading forever.
 **Verification**: `vite build` succeeds cleanly with the change in place. e2e
 13 passed / 2 failed — unchanged baseline.
 
+### §3.18 — Video streaming confirmed real; three UI defects fixed
+
+Investigated and fixed 2026-09-12, in response to three separate reports.
+
+**Is the whole video loaded into memory? No — confirmed three ways, not
+assumed.** (1) `LectureAssig.jsx` passes the raw Cloudinary URL straight to
+`ReactPlayer` with no `fetch`/`blob`/`arrayBuffer` anywhere in the frontend;
+`react-player`'s default `FilePlayer` renders a plain `<video src="...">`, so
+video bytes never pass through JavaScript — the browser's native media
+pipeline owns them, outside the JS heap entirely. (2) Cloudinary answers a
+`Range` request with `206 Partial Content` and `Accept-Ranges: bytes` —
+confirmed with a real lecture URL. (3) A user-supplied Chrome heap snapshot
+was parsed directly: total JS heap 26.2 MB for the whole app; every
+`JSArrayBufferData` object ≤128 KB; the aggregate of every
+ArrayBuffer/Blob/Uint8Array-shaped object in the entire heap is 449.8 KB;
+the one `<video src="...">` node present is 1.8 KB (the DOM element's own
+bookkeeping). No object anywhere near video-file size exists. Streaming via
+range requests, not a JS-level full download, confirmed rather than inferred.
+
+**Fix — `LectureAssig.jsx`'s back button was a flex sibling of the content
+panels, not a header above them.** `<BackButton/>` was a direct child of
+`<div className="flex flex-col md:flex-row">`, alongside the lecture-list
+panel and the video/PDF panel — on desktop this made it its own narrow flex
+column squeezed to the left of the content, instead of sitting as a header
+above the whole layout. Every other page using `BackButton`
+(`ViewStudentModule.jsx`, `StudentProfile.jsx`, `TeacherProfile.jsx`) scopes
+it inside its own header block; this was the only place it leaked into a
+multi-column content row. Fixed by moving it outside and above the flex row.
+
+**Fix — `alert()` replaced with an inline, self-clearing status message in
+`YourWork.jsx`.** Five native `alert()` calls (upload validation, upload
+success, mark-as-done success/failure) blocked the whole page and needed a
+click to dismiss for outcomes that mostly aren't errors needing
+acknowledgement. Replaced with local component state rendered as an inline
+banner that clears itself after 4 seconds.
+
+**Found while fixing the above — a third, real bug in the same file,
+materializing §3.14.** After a successful upload, `YourWork.jsx` refetched
+via `GET .../assignments/:assignmentId/submissions` — the exact dead route
+§3.14 already flagged; no backend route defines that path. The 404 was
+silently swallowed by the `catch` block *after* the success message had
+already shown, so a student would see "uploaded successfully" and then never
+actually see their new file in the list. It also passed the raw axios
+response object straight into state instead of `response.data.data`, a
+second, independent bug in the same line. Fixed by extracting one
+`fetchUploadedAssignments` function, used by both the mount effect and the
+post-upload refresh, pointed at the real (singular, no-suffix) route.
+
+**Also closed the last §3.16 loose end for this file**: all three
+authenticated calls in `YourWork.jsx` (view/upload/complete an assignment)
+now send `Authorization: Bearer` explicitly rather than relying on the
+cross-site cookie alone, matching `ViewStudentModule.jsx`'s fix.
+`TeachersPage.jsx` and `ViewtheModules.jsx` remain on the §3.16 "found, not
+fixed" list — same pattern, still no auth-context wiring to build on.
+
+**Verification**: `vite build` succeeds cleanly. e2e 13 passed / 2 failed —
+unchanged baseline.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
