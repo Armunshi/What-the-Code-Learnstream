@@ -14,6 +14,11 @@
 //                The student paid and was never enrolled. This is the real
 //                §2.8 damage. --apply runs the same idempotent fulfilOrder()
 //                the webhook uses.
+//   1b. DRIFTED  status == "paid" but the student does not actually hold one or
+//                more of the purchased courses. This is the failure that marker
+//                fields cannot see: orders written with an empty course list
+//                enrolled nobody, yet look complete locally. --apply enrolls
+//                the student in what they paid for.
 //   2. BACKFILL  status == "paid" but no fulfilledAt. These were fulfilled by
 //                the old inline code path, which predates the fulfilledAt /
 //                fulfilmentSource fields — they are already enrolled and need
@@ -37,7 +42,9 @@ import mongoose from "mongoose";
 import Razorpay from "razorpay";
 import { DB_NAME } from "../src/constants.js";
 import { Order } from "../src/models/Orders.js";
+import { UserStudent } from "../src/models/user/userstudentmodel.js";
 import { fulfilOrder } from "../src/utils/fulfilment.js";
+import { enrollStudentInCourses } from "../src/utils/enrollment.js";
 
 const APPLY = process.argv.includes("--apply");
 
@@ -46,15 +53,30 @@ const instance = new Razorpay({
     key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+// Which of an order's purchased courses the student does not actually hold.
+// A paid order whose student is missing a course is the real "paid but not
+// enrolled" state: it survives any amount of marker backfilling, because the
+// markers were written by a pass that enrolled nobody.
+async function missingEnrollments(order) {
+    const ids = (order.course_ids || []).map(String);
+    if (!ids.length) return [];
+    const student = await UserStudent.findById(order.user_id).select("Courses");
+    if (!student) return [];
+    const held = new Set((student.Courses || []).map(String));
+    return ids.filter((id) => !held.has(id));
+}
+
 async function main() {
     await mongoose.connect(`${process.env.MONGODB_URI}/${DB_NAME}`);
     console.log(`Connected. Mode: ${APPLY ? "APPLY (will fulfil/backfill)" : "DRY RUN (report only)"}`);
 
-    // Anything not demonstrably finished: never marked paid, or marked paid but
-    // carrying none of the fulfilment provenance the current code writes.
-    const candidates = await Order.find({
-        $or: [{ status: { $ne: "paid" } }, { fulfilledAt: { $exists: false } }],
-    });
+    // Every order, deliberately. An earlier version examined only orders that
+    // were unpaid or lacked fulfilledAt, which is precisely the blind spot that
+    // let drift hide: an order marked paid AND carrying fulfilledAt looks
+    // finished by every local signal while the student holds none of the
+    // courses. Only comparing each order against real enrollments finds those,
+    // so the cost of one Razorpay call per order is worth paying.
+    const candidates = await Order.find({});
 
     console.log(`\nOrders examined: ${candidates.length}`);
 
@@ -62,6 +84,13 @@ async function main() {
     const backfill = [];
     const abandoned = [];
     const failed = [];
+    // Orders marked paid whose student is nonetheless missing one of the
+    // purchased courses. Marker fields cannot detect this — only comparing the
+    // order against the student's actual enrollments can.
+    const drifted = [];
+    // Paid, enrolled, and fully marked — nothing to do, counted only so the
+    // totals add up to the number of orders examined.
+    const settled = [];
 
     for (const order of candidates) {
         let payments;
@@ -80,7 +109,13 @@ async function main() {
         if (!captured) {
             abandoned.push({ order, statuses: payments.map((p) => p.status) });
         } else if (order.status === "paid") {
-            backfill.push({ order, payment: captured });
+            const missing = await missingEnrollments(order);
+            if (missing.length) drifted.push({ order, payment: captured, missing });
+            // Only orders genuinely lacking the provenance markers belong in
+            // the backfill bucket. Counting every correctly-fulfilled paid
+            // order here would make each run report work that isn't needed.
+            else if (!order.fulfilledAt) backfill.push({ order, payment: captured });
+            else settled.push(order);
         } else {
             lost.push({ order, payment: captured });
         }
@@ -96,11 +131,23 @@ async function main() {
         );
     }
 
+    console.log(`\n=== 1b. DRIFTED — marked paid, but the student is missing courses: ${drifted.length} ===`);
+    if (!drifted.length) console.log("  (none)");
+    for (const { order, missing } of drifted) {
+        console.log(
+            `  ${order.razorpayOrder_id} user=${order.user_id} amount=${order.amount} paise ` +
+            `missing=[${missing.join(", ")}]`
+        );
+    }
+
     console.log(`\n=== 2. BACKFILL — already paid and enrolled, missing markers: ${backfill.length} ===`);
     console.log("  (no money involved; these just predate fulfilledAt/fulfilmentSource)");
 
     console.log(`\n=== 3. ABANDONED — no captured payment: ${abandoned.length} ===`);
     console.log("  (normal: checkout opened, never paid)");
+
+    console.log(`\n=== 4. SETTLED — paid, enrolled, fully marked: ${settled.length} ===`);
+    console.log("  (nothing to do)");
 
     if (failed.length) {
         console.log(`\n=== Could not check with Razorpay: ${failed.length} ===`);
@@ -112,7 +159,8 @@ async function main() {
     if (!APPLY) {
         console.log(
             `\nDRY RUN — nothing changed. ` +
-            `${lost.length} order(s) would be fulfilled, ${backfill.length} backfilled.`
+            `${lost.length} order(s) would be fulfilled, ${drifted.length} re-enrolled, ` +
+            `${backfill.length} backfilled.`
         );
         console.log("Re-run with --apply to act.");
         await mongoose.disconnect();
@@ -133,6 +181,26 @@ async function main() {
             );
         } catch (err) {
             console.error(`  FAILED ${order.razorpayOrder_id}: ${err.message}`);
+        }
+    }
+
+    // Repair drifted orders by enrolling the student in what they actually paid
+    // for. fulfilOrder is not used here: the order is already claimed as paid,
+    // so its atomic claim would match nothing and silently do no work.
+    let reEnrolled = 0;
+    for (const { order, missing } of drifted) {
+        try {
+            const results = await enrollStudentInCourses(order.user_id, order.course_ids);
+            await Order.updateOne(
+                { _id: order._id },
+                { $set: { fulfilledAt: new Date(), fulfilmentSource: "verify" } }
+            );
+            reEnrolled += 1;
+            console.log(
+                `  re-enrolled ${order.razorpayOrder_id} (was missing ${missing.length}): ${JSON.stringify(results)}`
+            );
+        } catch (err) {
+            console.error(`  FAILED re-enrolling ${order.razorpayOrder_id}: ${err.message}`);
         }
     }
 
@@ -157,7 +225,10 @@ async function main() {
         backfilledCount += result.modifiedCount;
     }
 
-    console.log(`\nFulfilled ${fulfilledCount} lost order(s); backfilled ${backfilledCount}.`);
+    console.log(
+        `\nFulfilled ${fulfilledCount} lost order(s); re-enrolled ${reEnrolled} drifted; ` +
+        `backfilled ${backfilledCount}.`
+    );
     await mongoose.disconnect();
 }
 

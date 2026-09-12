@@ -11,9 +11,15 @@
 // about them. The legacy field is left in place — it costs nothing and is the
 // only provenance for what happened.
 //
+// Where the local `course_id` is unusable (some orders stored an empty array),
+// it falls back to the Razorpay order's `notes`, which createOrder has always
+// populated with the course ids. That is authoritative data from the payment
+// provider, not a guess, and it recovers every order this script would
+// otherwise have to skip.
+//
 // Skipped, and reported rather than guessed at:
-//   - orders whose course_id is an empty string (at least one exists)
-//   - orders whose course_id points at a course that no longer exists
+//   - orders recoverable from neither the local field nor Razorpay's notes
+//   - orders whose course ids point at courses that no longer exist
 //
 // Idempotent: it only touches orders that have `course_id` and lack a
 // populated `course_ids`, so a second run is a no-op.
@@ -26,9 +32,32 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import mongoose from "mongoose";
+import Razorpay from "razorpay";
 import { DB_NAME } from "../src/constants.js";
 
 const APPLY = process.argv.includes("--apply");
+
+const instance = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+// createOrder writes the purchased course ids into the Razorpay order's notes,
+// as a comma-separated string under `course_ids` (older orders used a singular
+// `course_id`). That copy survives even when the local field does not.
+const courseIdsFromRazorpayNotes = async (razorpayOrderId) => {
+    try {
+        const remote = await instance.orders.fetch(razorpayOrderId);
+        const raw = remote?.notes?.course_ids ?? remote?.notes?.course_id ?? "";
+        return String(raw)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+    } catch (err) {
+        console.error(`    could not fetch ${razorpayOrderId} from Razorpay: ${err?.error?.description || err.message}`);
+        return [];
+    }
+};
 
 const isValidObjectId = (v) =>
     typeof v === "string" && /^[0-9a-fA-F]{24}$/.test(v);
@@ -47,10 +76,27 @@ async function main() {
 
     console.log(`\nLegacy orders (course_id set, course_ids empty/absent): ${legacy.length}`);
 
-    const malformed = legacy.filter((o) => !isValidObjectId(String(o.course_id ?? "")));
-    const wellFormed = legacy.filter((o) => isValidObjectId(String(o.course_id ?? "")));
+    // Resolve each order's course ids: prefer the local legacy field, fall back
+    // to Razorpay's notes for the ones that stored nothing usable.
+    const resolved = [];
+    const unrecoverable = [];
+    for (const o of legacy) {
+        if (isValidObjectId(String(o.course_id ?? ""))) {
+            resolved.push({ order: o, ids: [String(o.course_id)], via: "local" });
+            continue;
+        }
+        const fromNotes = (await courseIdsFromRazorpayNotes(o.razorpayOrder_id)).filter(isValidObjectId);
+        if (fromNotes.length) {
+            resolved.push({ order: o, ids: fromNotes, via: "razorpay-notes" });
+        } else {
+            unrecoverable.push(o);
+        }
+    }
 
-    const referenced = [...new Set(wellFormed.map((o) => String(o.course_id)))];
+    const wellFormed = resolved;
+    const malformed = unrecoverable;
+
+    const referenced = [...new Set(wellFormed.flatMap((r) => r.ids))];
     const existing = await mongoose.connection
         .collection("courses")
         .find({ _id: { $in: referenced.map((id) => new mongoose.Types.ObjectId(id)) } })
@@ -58,18 +104,28 @@ async function main() {
         .toArray();
     const liveIds = new Set(existing.map((c) => String(c._id)));
 
-    const convertible = wellFormed.filter((o) => liveIds.has(String(o.course_id)));
-    const deadCourse = wellFormed.filter((o) => !liveIds.has(String(o.course_id)));
+    // Keep only ids whose course still exists; an order keeps whatever survives.
+    const convertible = [];
+    const deadCourse = [];
+    for (const r of wellFormed) {
+        const live = r.ids.filter((id) => liveIds.has(id));
+        if (live.length) convertible.push({ ...r, ids: live });
+        else deadCourse.push(r);
+    }
 
     console.log(`  convertible (course still exists): ${convertible.length}`);
-    console.log(`  course_id malformed/empty:         ${malformed.length}`);
-    console.log(`  course_id points at a dead course: ${deadCourse.length}`);
+    console.log(`    of which recovered from Razorpay notes: ${convertible.filter((r) => r.via === "razorpay-notes").length}`);
+    console.log(`  unrecoverable (no local id, no notes): ${malformed.length}`);
+    console.log(`  all referenced courses deleted:       ${deadCourse.length}`);
 
     for (const o of malformed) {
         console.log(`    SKIP ${o.razorpayOrder_id} — course_id=${JSON.stringify(o.course_id)} status=${o.status}`);
     }
-    for (const o of deadCourse) {
-        console.log(`    SKIP ${o.razorpayOrder_id} — course ${o.course_id} no longer exists, status=${o.status}`);
+    for (const r of deadCourse) {
+        console.log(`    SKIP ${r.order.razorpayOrder_id} — course(s) ${r.ids.join(",")} no longer exist, status=${r.order.status}`);
+    }
+    for (const r of convertible.filter((x) => x.via === "razorpay-notes")) {
+        console.log(`    RECOVERED ${r.order.razorpayOrder_id} via Razorpay notes → ${r.ids.join(",")}`);
     }
 
     if (!APPLY) {
@@ -80,10 +136,10 @@ async function main() {
 
     if (convertible.length) {
         const result = await orders.bulkWrite(
-            convertible.map((o) => ({
+            convertible.map((r) => ({
                 updateOne: {
-                    filter: { _id: o._id },
-                    update: { $set: { course_ids: [new mongoose.Types.ObjectId(String(o.course_id))] } },
+                    filter: { _id: r.order._id },
+                    update: { $set: { course_ids: r.ids.map((id) => new mongoose.Types.ObjectId(id)) } },
                 },
             }))
         );
