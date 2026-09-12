@@ -161,6 +161,25 @@ export async function verifyPayment(
   await postJson('/payment/verify', body, studentToken);
 }
 
+// Posts a Razorpay-style webhook. Takes the exact body string rather than an
+// object on purpose: the signature is computed over the precise bytes sent, so
+// serialising once here and again inside the signer could produce different
+// JSON and fail verification for reasons that look like a signing bug.
+export async function sendWebhook(rawBody: string, signature: string): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/payment/webhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-razorpay-signature': signature,
+    },
+    body: rawBody,
+  });
+  const json = (await res.json()) as ApiEnvelope<unknown>;
+  if (!res.ok) {
+    throw new Error(`POST /payment/webhook -> ${res.status}: ${json.message ?? 'unknown error'}`);
+  }
+}
+
 export async function waitForBackendHealth(timeoutMs = 20_000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {

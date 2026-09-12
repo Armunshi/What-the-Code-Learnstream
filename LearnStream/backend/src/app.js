@@ -27,7 +27,18 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 //middleware
-app.use(express.json({limit:"16kb"}))
+// The Razorpay webhook signs the exact bytes it sends, so the raw body has to
+// survive JSON parsing for that one route (BACKEND_AUDIT.md §2.8).
+// Re-serialising the parsed object is not equivalent — key order and
+// whitespace would differ and every signature check would fail.
+app.use(express.json({
+    limit:"16kb",
+    verify: (req, res, buf) => {
+        if (req.originalUrl === '/payment/webhook') {
+            req.rawBody = buf;
+        }
+    },
+}))
 
 const allowedOrigins = process.env.CORS_ORIGIN.split(",").map(origin => origin.trim());
 

@@ -4,12 +4,18 @@
 //    your manually-started dev backend uses, so that must be stopped first
 //    (documented in README.md).
 // 3. Seeds a teacher, a course with two lectures, and a student enrolled in
-//    it — all via direct API calls, except enrollment, which is done by
-//    forging the HMAC signature Payment.controller.js's verifyPayment
-//    accepts (it never actually confirms with Razorpay's API — see
-//    BACKEND_AUDIT.md §2.9). This is a deliberate shortcut for setup speed
-//    and determinism; if §2.9 is ever fixed properly, this needs to switch
-//    to driving the real Razorpay checkout UI instead.
+//    it — all via direct API calls, except enrollment, which is driven by
+//    POSTing a correctly-signed `payment.captured` payload to
+//    /payment/webhook. That is the same path real fulfilment takes
+//    (BACKEND_AUDIT.md §2.8), so the fixture now exercises production
+//    fulfilment code rather than sidestepping it.
+//
+//    This used to forge the HMAC that verifyPayment accepted, which worked
+//    only because that handler never confirmed anything with Razorpay. §2.9
+//    closed that hole: verifyPayment now fetches the payment from Razorpay
+//    and rejects an id that doesn't exist there, so a synthetic payment can
+//    no longer be pushed through it. The webhook is the right seam instead —
+//    a signed payload is exactly what Razorpay itself sends.
 // 4. Logs in as both roles through the real login UI (not the API) so the
 //    resulting storageState.json files contain exactly what a real session
 //    produces — cookies AND the localStorage.userMeta the frontend itself
@@ -62,8 +68,12 @@ async function startBackend(mongoUri: string): Promise<void> {
   await api.waitForBackendHealth();
 }
 
-function forgeRazorpaySignature(orderId: string, paymentId: string, secret: string): string {
-  return crypto.createHmac('sha256', secret).update(`${orderId}|${paymentId}`).digest('hex');
+// Signs a webhook body the way Razorpay does: HMAC-SHA256 over the raw payload
+// bytes, keyed with the webhook secret. The backend checks this with
+// Razorpay's own validateWebhookSignature, so getting it right here is the
+// whole test of that path.
+function signWebhook(rawBody: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
 }
 
 export default async function globalSetup(): Promise<void> {
@@ -141,19 +151,32 @@ export default async function globalSetup(): Promise<void> {
     path.join(ASSETS_DIR, 'placeholder-lecture.mp4')
   );
 
-  console.log('[e2e setup] seeding student + enrollment (forged Razorpay signature, no checkout UI)...');
+  console.log('[e2e setup] seeding student + enrollment (signed webhook, no checkout UI)...');
   await api.signupStudent(studentCreds);
   const studentLogin = await api.loginStudent(studentCreds);
 
   const order = await api.createOrder(studentLogin.accessToken, [course._id]);
-  const forgedPaymentId = `pay_e2e_fixture_${runId}`;
   const envFile = parseEnvFile(path.join(E2E_ROOT, '.env.e2e'));
-  const signature = forgeRazorpaySignature(order.id, forgedPaymentId, envFile.RAZORPAY_KEY_SECRET);
-  await api.verifyPayment(studentLogin.accessToken, {
-    razorpay_order_id: order.id,
-    razorpay_payment_id: forgedPaymentId,
-    razorpay_signature: signature,
+  // Shaped like Razorpay's payment.captured event. `amount` must equal the
+  // order's amount in paise or the handler refuses to fulfil it, so this
+  // reads it back off the real order rather than hardcoding a number.
+  const webhookBody = JSON.stringify({
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: `pay_e2e_fixture_${runId}`,
+          order_id: order.id,
+          amount: order.amount,
+          status: 'captured',
+        },
+      },
+    },
   });
+  await api.sendWebhook(
+    webhookBody,
+    signWebhook(webhookBody, envFile.RAZORPAY_WEBHOOK_SECRET)
+  );
 
   // No storageState capture here — deliberately. AuthProvider refreshes on
   // every mount and the refresh endpoint rotates the token on every call
