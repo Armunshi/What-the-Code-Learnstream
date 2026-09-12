@@ -41,7 +41,7 @@ dotenv.config();
 import mongoose from "mongoose";
 import Razorpay from "razorpay";
 import { DB_NAME } from "../src/constants.js";
-import { Order } from "../src/models/Orders.js";
+import { Order } from "../src/models/order.model.js";
 import { UserStudent } from "../src/models/user/userstudentmodel.js";
 import { fulfilOrder } from "../src/utils/fulfilment.js";
 import { enrollStudentInCourses } from "../src/utils/enrollment.js";

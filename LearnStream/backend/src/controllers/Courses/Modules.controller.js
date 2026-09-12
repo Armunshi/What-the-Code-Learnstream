@@ -1,9 +1,11 @@
-import { Assignments, Courses, Lectures } from "../../models/Course/courses.js";
+import { Assignments } from "../../models/assignment.model.js";
+import { Courses } from "../../models/course.model.js";
+import { Lectures } from "../../models/lecture.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { deleteMediaFromCloudinary } from "../../utils/cloudinary.js";
-import { Modules } from "../../models/Course/Modules.js";
+import { Modules } from "../../models/module.model.js";
 import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const addModule = asyncHandler(async (req, res) => {

@@ -2,8 +2,8 @@
 
 import Razorpay from 'razorpay';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { Order } from '../models/Orders.js';
-import { Courses } from '../models/Course/courses.js';
+import { Order } from '../models/order.model.js';
+import { Courses } from '../models/course.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { fulfilOrder } from '../utils/fulfilment.js';

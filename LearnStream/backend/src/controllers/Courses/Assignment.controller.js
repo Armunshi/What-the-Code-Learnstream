@@ -1,11 +1,12 @@
-import { Assignments, Courses } from "../../models/Course/courses.js";
+import { Assignments } from "../../models/assignment.model.js";
+import { Courses } from "../../models/course.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary } from "../../utils/cloudinary.js";
-import { Modules } from "../../models/Course/Modules.js";
+import { Modules } from "../../models/module.model.js";
 import fs from "fs/promises";
-import { Progress } from "../../models/Course/Progress.js";
+import { Progress } from "../../models/progress.model.js";
 import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const createAssignment = asyncHandler(async (req, res) => {

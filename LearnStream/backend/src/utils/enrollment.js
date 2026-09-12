@@ -1,4 +1,4 @@
-import { Courses } from "../models/Course/courses.js";
+import { Courses } from "../models/course.model.js";
 import { UserStudent } from "../models/user/userstudentmodel.js";
 
 // Enrolls a student in each of `course_ids`, skipping ones that no longer

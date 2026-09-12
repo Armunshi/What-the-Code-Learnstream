@@ -23,8 +23,10 @@ dotenv.config();
 
 import mongoose from "mongoose";
 import { DB_NAME } from "../src/constants.js";
-import { Courses, Lectures, Assignments } from "../src/models/Course/courses.js";
-import { Modules } from "../src/models/Course/Modules.js";
+import { Assignments } from "../src/models/assignment.model.js";
+import { Courses } from "../src/models/course.model.js";
+import { Lectures } from "../src/models/lecture.model.js";
+import { Modules } from "../src/models/module.model.js";
 import { deleteMediaFromCloudinary } from "../src/utils/cloudinary.js";
 
 const APPLY = process.argv.includes("--apply");
