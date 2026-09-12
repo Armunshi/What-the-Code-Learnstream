@@ -240,6 +240,9 @@ const amount = courses.reduce((sum, course) => sum + course.price, 0) * 100; // 
 
 **Fix**: `Math.round(total * 100)`, and store prices as integer paise in the model to remove the class of bug entirely.
 
+
+**Resolved 2026-09-12.** Prices are now stored and transmitted as integer paise, validated as whole non-negative integers at the schema, so a fractional price can no longer be created at all. The `* 100` in `createOrder` is gone. Migrated with `scripts/migrate-prices-to-paise.js`: 13/13 courses, none fractional in live data, and a marker in a `migrations` collection makes a second run a hard stop (re-running would multiply by 100 again). `orders.amount` was already paise and was left untouched.
+
 ### 2.8 Payment has no webhook — a closed browser loses the enrollment [READ] — **backend-completion prerequisite**
 
 Enrollment happens only inside `verifyPayment` (`Payment.controller.js:107`), which runs only if the **browser** calls back after checkout. If the user closes the tab, loses connectivity, or the handler throws between Razorpay confirming and the enrollment write, the order stays `status: "created"` forever and the student is never enrolled — while Razorpay has taken the money.
@@ -249,6 +252,9 @@ Module 2 correctly fixed the *frontend* half of "paid but not enrolled" by makin
 **Confirmed live 2026-09-11**: the full checkout path (order create → Razorpay UPI test payment via `success@razorpay` → `verifyPayment` → enrollment → course visible on the student's page) works end to end. That's exactly why this finding is promoted from "P1 hardening" to a **completion prerequisite**: the happy path working is precisely what hides this gap — it only shows up as silent revenue loss (charged, not enrolled, no error, no record to reconcile) the first time a real user's browser doesn't complete the round trip. The backend track should not be called done with fulfilment still client-driven only.
 
 **Fix**: add a Razorpay **webhook** endpoint (signature-verified against `RAZORPAY_WEBHOOK_SECRET`) as the authoritative fulfilment path, and make `verifyPayment` an idempotent fast-path. Requires the idempotency work in §2.9.
+
+
+**Resolved 2026-09-12**, and the prediction above was confirmed in live data. `scripts/reconcile-orders.js` asked Razorpay what it actually recorded against every unfinished order and found **5 orders where payment was captured and the student was never enrolled** — silent, unreported, exactly the shape described. (26 more were already paid and enrolled, needing only the new provenance fields; 33 were abandoned before payment, which is normal.) `POST /payment/webhook` is now the authoritative path, verified with the SDK's `validateWebhookSignature` over the raw request body. **Not yet live: it needs a real `RAZORPAY_WEBHOOK_SECRET` in `backend/.env` and a webhook registered in the Razorpay dashboard.** Until both exist the endpoint refuses every call with a 500 and logs why — deliberately loud, because a webhook that silently no-ops is indistinguishable from not having one.
 
 ### 2.9 `verifyPayment` is neither idempotent nor bound to the paying user [READ]
 
@@ -261,6 +267,11 @@ Module 2 correctly fixed the *frontend* half of "paid but not enrolled" by makin
 **Fix**: guard on `order.status !== "paid"` before doing work, fetch and compare the payment amount/status via the Razorpay API, and assert the order belongs to the caller.
 
 **Confirmed empirically, 2026-09-12**: the e2e Playwright suite's fixture setup (`LearnStream/e2e/global-setup.ts`) enrolls its test student by computing `HMAC-SHA256(order_id|payment_id, RAZORPAY_KEY_SECRET)` for a **synthetic, never-real** `payment_id` and posting straight to `/payment/verify` — no Razorpay checkout UI, no real payment, ever. It works every time. This doesn't lower the severity assessed above — computing that HMAC requires `RAZORPAY_KEY_SECRET`, which only the server holds, so this isn't a bypass an outside attacker can reproduce without that secret. What it does confirm concretely is the underlying gap itself: the code path genuinely never asks Razorpay whether the payment happened, it only checks that whoever called `/payment/verify` could produce the right hash. That matters more than it might otherwise because `RAZORPAY_KEY_SECRET` is exactly the kind of value §1.4 already found being logged in plaintext — a leak there, combined with this gap, is a real path to free enrollment, not just a theoretical one.
+
+
+**Resolved 2026-09-12.** `verifyPayment` now fetches the payment from Razorpay and rejects it unless the status is `captured`, the amount equals `order.amount`, and `payment.order_id` matches; it asserts the order belongs to `req.student._id`; and it compares signatures in constant time. Idempotency is no longer accidental — both this and the webhook go through `utils/fulfilment.js`, which claims the order with an atomic conditional update so only one caller enrolls.
+
+The e2e fixture's forged-signature enrollment died with this change, as predicted: forging worked *only* because nothing ever contacted Razorpay. `global-setup.ts` now seeds enrollment by POSTing a correctly-signed `payment.captured` webhook, so the fixture exercises the production fulfilment path instead of bypassing it.
 
 ### 2.10 Uploads: original filenames, no size limit, publicly served [READ] / [RISK]
 
@@ -551,9 +562,10 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 **Verification**: e2e suite re-run clean — 13 passed, same 2 pre-existing lecture-completion double-fire failures (unrelated, tracked under Module 5). All edited files pass `node --check`.
 
 ### Module B4 — Payments
-- [ ] `Math.round` on paise; migrate prices to integer paise (§2.7).
-- [ ] **Razorpay webhook as the authoritative fulfilment path (§2.8) — backend-completion prerequisite, not optional.** Checkout works end-to-end on the happy path (confirmed 2026-09-11), which is exactly why this can't be skipped: today, enrollment success depends entirely on the client completing a round trip after payment. Do not consider the backend track done without this.
-- [ ] Idempotency guard, amount verification, order-ownership check in `verifyPayment` (§2.9).
+- [x] `Math.round` on paise; migrate prices to integer paise (§2.7). Done 2026-09-12. Prices are integer paise end to end; rupees survive only at the UI's input and display edges, both routed through `frontend/src/utils/money.js`. The schema validator rejects a fractional price outright, so the bug class is closed rather than the single instance. Applied to the database with `scripts/migrate-prices-to-paise.js` (13/13 courses, none fractional, marker recorded so a re-run can't multiply by 100 twice).
+- [x] **Razorpay webhook as the authoritative fulfilment path (§2.8).** Done 2026-09-12. `POST /payment/webhook`, signature-verified against `RAZORPAY_WEBHOOK_SECRET`, sharing one idempotent `fulfilOrder()` with `verifyPayment`. **Still needs a real secret in `backend/.env` and a webhook registered in the Razorpay dashboard — until then the endpoint refuses every call with a 500, by design.**
+- [x] Idempotency guard, amount verification, order-ownership check in `verifyPayment` (§2.9). Done 2026-09-12. It now fetches the payment from Razorpay and checks captured status, amount, and order linkage, asserts the order belongs to `req.student._id`, and compares signatures in constant time.
+- [ ] **Reconcile the 5 orders found paid-but-not-enrolled.** `scripts/reconcile-orders.js` (dry-run default) confirmed 5 orders where Razorpay captured payment and the student was never enrolled — the §2.8 failure in live data, not a hypothetical. 26 more are already paid and enrolled and need only the new provenance fields backfilled; 33 were abandoned before payment and are normal. Not yet applied.
 
 ### Module B5 — Restructure (§6)
 - [ ] `config/env.js` with fail-fast validation (§4.6).
