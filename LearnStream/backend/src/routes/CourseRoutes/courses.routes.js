@@ -1,10 +1,9 @@
 import { Router } from "express";
-import { 
+import {
     checkEnrollment,
-    CourseProgress, 
-    createCourse, 
-    enrollMultipleCourses, 
-    getAllCourses, 
+    CourseProgress,
+    createCourse,
+    getAllCourses,
     getCourseById, 
     getCourseByStudentId, 
     getCourseByTeacherId, 
@@ -36,7 +35,6 @@ router.route('/').post(verifyJWT, upload.single('thumbnail'), createCourse);
 
 //  Dynamic Routes NEXT (Keep These At Bottom)
 router.route('/:courseId/getTeacher').get(getCourseOwner);
-router.route('/enroll').post(verifyJWTStudent, enrollMultipleCourses);
 router.route('/:courseId/enrolled').get(verifyJWTCombined, checkEnrollment);
 router.route('/:courseId/progress').get(verifyJWTCombined, CourseProgress);
 router.route('/:courseId/students').get(verifyJWT, getEnrolledStudents);

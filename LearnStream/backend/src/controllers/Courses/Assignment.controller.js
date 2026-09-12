@@ -216,21 +216,26 @@ const deleteAssignment = asyncHandler(async (req,res)=>{
     .json(new ApiResponse(200,null,"Assignment deleted succesfully"))
 })
 const getStudentsAndUploadedAssignments = asyncHandler(async (req, res) => {
-    const { assignmentId } = req.params;  // Corrected to access params directly
+    const { assignmentId } = req.params;
 
     // Find the assignment by assignmentId
-    console.log(assignmentId);
     const assignment = await Assignments.findById(assignmentId)
         .populate({
             path: 'uploadedAssignments.studentId', // Populate student details
             select: 'name email', // You can add other student fields as needed
         });
-        
+
     // If the assignment doesn't exist, return an error
     if (!assignment) {
         res.status(404);
         throw new ApiError( 404,'Assignment not found');
     }
+
+    // Resolve the assignment's real course via its module — the route's
+    // `courseId` param is attacker-controlled and must not be trusted on its own.
+    const module = await Modules.findById(assignment.module_id);
+    const course = module ? await Courses.findById(module.course) : null;
+    assertCourseOwnership(course, req.teacher._id);
 
     // Send the response with assignment data and students who uploaded
     res.status(200).json(

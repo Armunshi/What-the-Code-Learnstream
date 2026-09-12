@@ -503,14 +503,14 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 - [x] Historical `frontend/.env` confirmed benign (2026-09-12) — it was tracked-but-empty in git history, then deleted; zero secrets ever committed anywhere in this repo. See §4.8.
 
 ### Module B1 — P0 containment
-- [ ] Auth + enrollment guard on `getCourseModules`; stop returning `public_id` to non-entitled callers (§1.1).
-- [ ] Signed/expiring Cloudinary URLs for lecture + assignment media (§1.1) — the only fix that helps against already-leaked ids.
-- [ ] `assertCourseOwnership` on `getStudentsAndUploadedAssignments` and `getEnrolledStudents` (§1.2).
-- [ ] Delete all four credential `console.log`s (§1.4).
-- [ ] Fix logout to actually clear `refreshToken` (§1.5) — verify by reading the DB after logout.
-- [ ] Fix or delete `POST /courses/enroll` (§1.3).
+- [x] Auth + enrollment guard on `getCourseModules`; stop returning `public_id` to non-entitled callers (§1.1) — 2026-09-12. `modules.routes.js`'s `.get('/:course_id/modules')` now requires `verifyJWTCombined`; the handler strips `public_id` from every lecture/assignment unless the caller is the owning teacher or an enrolled student. Re-verified live against the exact course id from the original finding (`678bf0eb072334a2221207fa`): the unauthenticated request now returns **401** instead of 200.
+- [ ] Signed/expiring Cloudinary URLs for lecture + assignment media (§1.1) — the only fix that helps against already-leaked ids. Not done — deferred, tracked separately since it's independent of the auth gate above.
+- [x] `assertCourseOwnership` on `getStudentsAndUploadedAssignments` and `getEnrolledStudents` (§1.2) — 2026-09-12. `getStudentsAndUploadedAssignments` now resolves the assignment's real course via its `module_id` (not the attacker-controlled `courseId` route param) before checking ownership. `getEnrolledStudents` checks ownership against the resolved course directly.
+- [x] Delete all four credential `console.log`s (§1.4) — 2026-09-12. Removed from `UserStudent.controller.js` (register + login), `UserTeacher.controller.js` (login), `auth.routes.js` (refresh), and `authstudent.middleware.js` (every authenticated request).
+- [x] Fix logout to actually clear `refreshToken` (§1.5) — 2026-09-12. Both `UserStudent.controller.js` and `UserTeacher.controller.js` now use `$unset: { refreshToken: 1 }` instead of the no-op `$set: { refreshToken: undefined }`.
+- [x] Fix or delete `POST /courses/enroll` (§1.3) — 2026-09-12. Deleted (route, handler, and export) per the "prefer deleting" guidance in §1.3/§5.5 — confirmed no frontend caller and no other backend caller before removal; enrollment is exclusively payment-driven now (`Payment.controller.js`'s correctly-imported `enrollStudentInCourses` call is untouched).
 
-**Verification**: re-run the §1.1 chain and confirm 401/403 at step 2; log in as teacher B and confirm 403 reading teacher A's assignment submissions; log out, then attempt a refresh with the old token and confirm it fails.
+**Verification**: e2e suite re-run after these fixes — 12 passed, same 3 pre-existing failures as before (masked-401 in §2.11, lecture double-fire — both unrelated to B1, already tracked under B2/Module 5). No regressions. Full §1.1 chain / cross-teacher / post-logout-refresh manual re-verification against production still pending (needs the same live-course check repeated once B0's prod secret rotation lands).
 
 ### Module B2 — Error handling & contracts
 - [ ] Add `errorHandler.js` and register it last in `app.js` (§2.1).

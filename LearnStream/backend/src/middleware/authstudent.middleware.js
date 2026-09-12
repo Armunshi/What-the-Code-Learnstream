@@ -6,10 +6,7 @@ import { UserStudent } from "../models/user/userstudentmodel.js";
 const verifyJWTStudent = asyncHandler(async (req,res,next)=>{
    try {
     const token = req.cookies?.studentAccessToken || req.header("Authorization")?.replace(/^Bearer\s/, "").trim();
-    // console.log("Auth Header:", req.header("Authorization"));
-    // console.log("studentAccessToken Cookie:", req.cookies?.studentAccessToken);
 
-    console.log(token)
      if (!token){
          throw new ApiError(401,"Unauthorized Request")
      }
@@ -23,7 +20,6 @@ const verifyJWTStudent = asyncHandler(async (req,res,next)=>{
          throw new ApiError(401,"Invalid Access Token")
      }
      req.student = user
-    //  console.log('Student user set in req:', req.student);
      next();
    } catch (error) {
     throw new ApiError(401,error?.message || 

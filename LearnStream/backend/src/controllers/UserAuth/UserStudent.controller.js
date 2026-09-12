@@ -101,9 +101,7 @@ const registerUserStudent = asyncHandler( async (req,res) =>{
         "-password -refreshToken"
     )
     
-   
 
-    console.log("Cookies set: ", accessToken, refreshToken);
 
     return res.status(200)
     .cookie("studentAccessToken" ,accessToken,options)
@@ -161,9 +159,6 @@ const loginUserStudent = asyncHandler(async (req,res)=>{
     const {accessToken,refreshToken} = await generateAccessAndRefreshTokens(userStudent._id)
 
     const LoggedInUserStudent = await UserStudent.findById(userStudent._id).select("-password -refreshToken")
-    
-  
-    console.log("Cookies set: ", accessToken, refreshToken);
 
     return res.status(200)
     .cookie("studentAccessToken" ,accessToken,options)
@@ -192,7 +187,7 @@ const logoutUserStudent = asyncHandler(async (req, res) => {
     }
 
     await UserStudent.findByIdAndUpdate(decoded._id, {
-        $set: { refreshToken: undefined },
+        $unset: { refreshToken: 1 },
     });
 
     return res

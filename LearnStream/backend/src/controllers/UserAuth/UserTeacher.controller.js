@@ -107,10 +107,6 @@ const loginUser = asyncHandler(async (req,res)=>{
     const {accessToken,refreshToken} = await generateAccessAndRefreshTokens(userTeacher._id)
 
     const LoggedInUserTeacher = await UserTeacher.findById(userTeacher._id).select("-password -refreshToken")
-    
-    
-
-    console.log("Cookies set: ", accessToken, refreshToken);
 
     return res.status(200)
     .cookie("teacherAccessToken" ,accessToken,options)
@@ -139,7 +135,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     }
 
     await UserTeacher.findByIdAndUpdate(decoded._id, {
-        $set: { refreshToken: undefined },
+        $unset: { refreshToken: 1 },
     });
 
 

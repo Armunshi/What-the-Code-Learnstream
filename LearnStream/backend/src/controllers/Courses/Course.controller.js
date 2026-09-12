@@ -8,6 +8,7 @@ import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary, uploadOnClo
 import { UserStudent } from "../../models/user/userstudentmodel.js";
 import { Progress } from "../../models/Course/Progress.js";
 import { UserTeacher } from "../../models/user/userteachermodel.js";
+import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 // import { Cart } from "../../models/Cart.js";
 
 const createCourse = asyncHandler(async (req,res)=> {
@@ -170,25 +171,6 @@ const getAllCourses = asyncHandler(async (req,res) =>{
     )
 })
 
-const enrollMultipleCourses = asyncHandler(async (req, res) => {
-  const student_id = req.student._id;
-  const { course_ids } = req.body;
-
-  if (!student_id) {
-    throw new ApiError(401, 'User not authenticated');
-  }
-
-  if (!Array.isArray(course_ids) || course_ids.length === 0) {
-    throw new ApiError(400, 'course_ids must be a non-empty array');
-  }
-
-  const results = await enrollStudentInCourses(student_id, course_ids);
-
-  return res.status(200).json(
-    new ApiResponse(200, results, "Enrollment processed")
-  );
-});
-
 const checkEnrollment = asyncHandler(async(req,res)=>{
     const { courseId:course_id}  = req.params
 
@@ -221,15 +203,12 @@ const checkEnrollment = asyncHandler(async(req,res)=>{
 })
 const getEnrolledStudents = asyncHandler(async (req,res)=>{
     const {courseId} = req.params
-    
-    const students = await Courses.findById(courseId).select('enrolledStudents')
-    
-    if (!students){
-        throw new ApiError('Error while fetching students for course')
-    }
+
+    const course = await Courses.findById(courseId).select('enrolledStudents author')
+    assertCourseOwnership(course, req.teacher._id);
 
     return res.status(200).json(
-        new ApiResponse(200,students,"Succesfully Sent Student Data")
+        new ApiResponse(200,course,"Succesfully Sent Student Data")
     )
 })
 const CourseProgress = asyncHandler(async (req, res) => {
@@ -368,7 +347,6 @@ export {
     getCourseByStudentId,
     CourseProgress,
     getEnrolledStudents,
-    enrollMultipleCourses,
     checkEnrollment,
     getCourseByTeacherId,
     getCourseOwner

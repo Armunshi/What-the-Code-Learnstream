@@ -64,9 +64,6 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
             maxAge: 24 * 60 * 60 * 1000, // 1 day
         };
 
-        console.log("Student Refresh:", req.cookies.studentRefreshToken);
-        console.log("Teacher Refresh:", req.cookies.teacherRefreshToken);
-
         // Set cookies based on role
         return res
             .status(200)

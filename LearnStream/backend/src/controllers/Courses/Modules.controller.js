@@ -138,7 +138,7 @@ const deleteModule = asyncHandler(async (req, res) => {
 
 const getCourseModules = asyncHandler(async (req, res) => {
     const { course_id } = req.params;
-    console.log(course_id)
+
     const course = await Courses.findById(course_id).populate({
         path: 'modules',
         populate: [
@@ -146,12 +146,30 @@ const getCourseModules = asyncHandler(async (req, res) => {
             { path: 'assignments', select: 'title deadline public_id ' }
         ]
     });
-    console.log(course)
+
     if (!course) {
         throw new ApiError(404, "Course not found");
     }
 
-    return res.status(200).json(new ApiResponse(200, course.modules, "Modules fetched successfully"));
+    const isOwner = req.teacher && course.author.toString() === req.teacher._id.toString();
+    const isEnrolled = req.student && course.enrolledStudents.some(
+        (studentId) => studentId.toString() === req.student._id.toString()
+    );
+
+    // Only the owning teacher or an enrolled student gets `public_id` — that's
+    // the only secret needed to build a direct, unauthenticated Cloudinary
+    // asset URL (see BACKEND_AUDIT.md §1.1). Everyone else gets titles/metadata only.
+    let modules = course.modules;
+    if (!isOwner && !isEnrolled) {
+        modules = modules.map((module) => {
+            const plain = module.toObject();
+            plain.lectures = plain.lectures.map(({ public_id, ...rest }) => rest);
+            plain.assignments = plain.assignments.map(({ public_id, ...rest }) => rest);
+            return plain;
+        });
+    }
+
+    return res.status(200).json(new ApiResponse(200, modules, "Modules fetched successfully"));
 });
 const getModuleById = asyncHandler(async (req, res) => {
     const { module_id } = req.params;
