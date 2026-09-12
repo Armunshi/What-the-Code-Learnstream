@@ -56,11 +56,17 @@ import userStudentRouter from './routes/students.routes.js'
 import CourseRouter from './routes/CourseRoutes/index.routes.js'
 import AuthRouter from "./routes/auth.routes.js"
 import PaymentRouter from "./routes/payment.routes.js"
+import { errorHandler } from "./middleware/errorHandler.middleware.js"
 // Routes declaration
 app.use('/user/teacher',userTeacherRouter);
 app.use('/user/student',userStudentRouter);
 app.use('/courses',CourseRouter);
 app.use('/auth',AuthRouter);
 app.use('/payment',PaymentRouter);
+
+// Must be registered last: this is what turns every thrown ApiError (and any
+// other error asyncHandler forwards) into a JSON envelope instead of
+// Express's default HTML-with-stack-trace response (BACKEND_AUDIT.md §2.1).
+app.use(errorHandler);
 
 export {app}

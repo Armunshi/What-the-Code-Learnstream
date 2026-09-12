@@ -26,7 +26,7 @@ const LectureAssig = () => {
     const fetchCompletedLectures = async () => {
       try {
         const response = await axios.get(`/courses/${course_id}/completed`);
-        const completedLectureIds = response.data.completedLectures.map(
+        const completedLectureIds = response.data.data.map(
           (lecture) => lecture.lectureId
         );
         const completedMap = completedLectureIds.reduce((acc, id) => {

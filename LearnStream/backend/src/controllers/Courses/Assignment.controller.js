@@ -53,7 +53,7 @@ const createAssignment = asyncHandler(async (req, res) => {
 
     // ✅ Validate required fields
     if (!course_id || !title || !moduleId) {
-        throw new ApiError('CourseId, Title, and ModuleId cannot be empty');
+        throw new ApiError(400, 'CourseId, Title, and ModuleId cannot be empty');
     }
 
     const ownerCourse = await Courses.findById(course_id);
@@ -62,13 +62,13 @@ const createAssignment = asyncHandler(async (req, res) => {
     // ✅ Check for uploaded files
     const assignmentFiles = req.files?.assignmentFiles;
     if (!assignmentFiles || assignmentFiles.length === 0) {
-        throw new ApiError('No assignments uploaded');
+        throw new ApiError(400, 'No assignments uploaded');
     }
 
     // ✅ Check if an assignment already exists in the module
     const existingAssignment = await Assignments.findOne({ course_id, module_id: moduleId, title });
     if (existingAssignment) {
-        throw new ApiError('Assignment with the same title already exists for this module.');
+        throw new ApiError(409, 'Assignment with the same title already exists for this module.');
     }
 
     // ✅ Upload files to Cloudinary
@@ -77,7 +77,7 @@ const createAssignment = asyncHandler(async (req, res) => {
     try {
         uploadedFiles = await uploadMultipleFilesOnCloudinary(filePaths);
     } catch (error) {
-        throw new ApiError('Error uploading files to Cloudinary. Please try again.');
+        throw new ApiError(500, 'Error uploading files to Cloudinary. Please try again.');
     }
 
     const fileUrls = uploadedFiles.map((file) => file.secure_url);
@@ -134,7 +134,7 @@ const submitAssignment = asyncHandler(async (req,res)=>{
 
     const submissionFiles = req.files?.submissionFiles;
 
-    if (!submissionFiles || submissionFiles.length==0) throw new ApiError('no assignments uploaded');
+    if (!submissionFiles || submissionFiles.length==0) throw new ApiError(400, 'no assignments uploaded');
     
     console.log(submissionFiles)
     

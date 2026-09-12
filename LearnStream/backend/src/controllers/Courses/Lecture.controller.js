@@ -228,26 +228,19 @@ const getLecturesCompleted  = asyncHandler(async (req,res)=>{
     const studentId = req.student?._id; // Ensure authentication middleware sets req.student
 
     if (!studentId) {
-        return res.status(401).json({ success: false, message: "Unauthorized access" });
+        throw new ApiError(401, "Unauthorized access");
     }
 
     // Fetch completed lectures for the student in the given course
     const progress = await Progress.findOne({ studentId, courseId });
 
     if (!progress) {
-        return res.status(200).json({
-            success: true,
-            completedLectures: []
-        });
+        return res.status(200).json(new ApiResponse(200, [], "No lectures completed yet"));
     }
 
     const completedLectureIds = progress.completedLectures.map(lecture => ({ lectureId: lecture.lectureId }));
 
-
-    return res.status(200).json({
-        success: true,
-        completedLectures: completedLectureIds
-    });
+    return res.status(200).json(new ApiResponse(200, completedLectureIds, "Completed lectures fetched successfully"));
 })
 export {
     addLecture,

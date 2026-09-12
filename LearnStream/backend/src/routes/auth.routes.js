@@ -11,75 +11,76 @@ import { generateAccessAndRefreshTokens as generateStudentTokens } from "../cont
 
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
-    try {
-        let incomingRefreshToken = req.cookies?.studentRefreshToken;
-        let role = "student";
+    let incomingRefreshToken = req.cookies?.studentRefreshToken;
+    let role = "student";
 
-        if (!incomingRefreshToken && req.cookies?.teacherRefreshToken) {
-            incomingRefreshToken = req.cookies.teacherRefreshToken;
-            role = "teacher";
-        }
-
-        if (!incomingRefreshToken) {
-            throw new ApiError(401, "No refresh token provided");
-        }
-
-        const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
-        if (!decodedToken?._id) {
-            throw new ApiError(401, "Invalid refresh token");
-        }
-
-        // Check both collections
-        let user = await UserStudent.findById(decodedToken._id);
-
-        if (!user) {
-            user = await UserTeacher.findById(decodedToken._id);
-            role = "teacher";
-        }
-
-        if (!user) {
-            throw new ApiError(401, "User not found");
-        }
-
-        if (user.refreshToken !== incomingRefreshToken) {
-            throw new ApiError(401, "Refresh token mismatch");
-        }
-        let tokens;
-
-        if (role === "student") {
-            tokens = await generateStudentTokens(user._id);
-        } else {
-            tokens = await generateTeacherTokens(user._id);
-        }
-
-        const { accessToken, refreshToken: newRefreshToken } = tokens;
-
-        user.refreshToken = newRefreshToken;
-        await user.save({ validateBeforeSave: false });
-
-        const options = {
-            httpOnly: true,
-            secure: true,
-            sameSite: "none",
-            maxAge: 24 * 60 * 60 * 1000, // 1 day
-        };
-
-        // Set cookies based on role
-        return res
-            .status(200)
-            .cookie(`${role}AccessToken`, accessToken, options)
-            .cookie(`${role}RefreshToken`, newRefreshToken, options)
-            .json(
-                new ApiResponse(
-                    200,
-                    { accessToken, refreshToken: newRefreshToken, role },
-                    "Access token refreshed"
-                )
-            );
-
-    } catch (error) {
-        throw new ApiError(400, error?.message || "Invalid refresh token");
+    if (!incomingRefreshToken && req.cookies?.teacherRefreshToken) {
+        incomingRefreshToken = req.cookies.teacherRefreshToken;
+        role = "teacher";
     }
+
+    if (!incomingRefreshToken) {
+        throw new ApiError(401, "No refresh token provided");
+    }
+
+    let decodedToken;
+    try {
+        decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid refresh token");
+    }
+
+    if (!decodedToken?._id) {
+        throw new ApiError(401, "Invalid refresh token");
+    }
+
+    // Check both collections
+    let user = await UserStudent.findById(decodedToken._id);
+
+    if (!user) {
+        user = await UserTeacher.findById(decodedToken._id);
+        role = "teacher";
+    }
+
+    if (!user) {
+        throw new ApiError(401, "User not found");
+    }
+
+    if (user.refreshToken !== incomingRefreshToken) {
+        throw new ApiError(401, "Refresh token mismatch");
+    }
+    let tokens;
+
+    if (role === "student") {
+        tokens = await generateStudentTokens(user._id);
+    } else {
+        tokens = await generateTeacherTokens(user._id);
+    }
+
+    // generateStudentTokens/generateTeacherTokens already set `refreshToken`
+    // on the user and save it — a second save here would write from this
+    // stale, pre-refresh snapshot and can clobber concurrent field updates.
+    const { accessToken, refreshToken: newRefreshToken } = tokens;
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none",
+        maxAge: 24 * 60 * 60 * 1000, // 1 day
+    };
+
+    // Set cookies based on role
+    return res
+        .status(200)
+        .cookie(`${role}AccessToken`, accessToken, options)
+        .cookie(`${role}RefreshToken`, newRefreshToken, options)
+        .json(
+            new ApiResponse(
+                200,
+                { accessToken, refreshToken: newRefreshToken, role },
+                "Access token refreshed"
+            )
+        );
 });
 
 const router  = Router();

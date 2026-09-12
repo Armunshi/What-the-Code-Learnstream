@@ -74,7 +74,7 @@ const getCourseByStudentId = asyncHandler(async (req,res)=>{
     const student_id  = req.student._id;
     console.log(req.params)
     if (!student_id){
-        throw new ApiError('user is not logged in  or is undefined')
+        throw new ApiError(401, 'user is not logged in  or is undefined')
     }
     const studentcourses = await UserStudent.findById(student_id, { Courses: 1 })
   .populate({
@@ -87,7 +87,7 @@ const getCourseByStudentId = asyncHandler(async (req,res)=>{
   });
     console.log(studentcourses);
     if (!studentcourses){
-        throw new ApiError('student doesnt have any courses')
+        throw new ApiError(404, 'student doesnt have any courses')
     }
 
     return res.status(200).json(
@@ -99,7 +99,7 @@ const getCourseByTeacherId = asyncHandler(async(req,res)=>{
     const teacher_id  = req.teacher._id;
 
     if (!teacher_id){
-        throw new ApiError('user is not logged in  or is undefined')
+        throw new ApiError(401, 'user is not logged in  or is undefined')
     }
     const teachercourses = await UserTeacher.findById(teacher_id, { Courses: 1 })
   .populate({
@@ -112,7 +112,7 @@ const getCourseByTeacherId = asyncHandler(async(req,res)=>{
   });
     console.log(teachercourses);
     if (!teachercourses){
-        throw new ApiError('teacher doesnt have any courses')
+        throw new ApiError(404, 'teacher doesnt have any courses')
     }
 
     return res.status(200).json(
@@ -127,10 +127,10 @@ const getCourseById = asyncHandler(async (req, res)=> {
 
 
     if (!course){
-        throw new ApiError("course not found")
+        throw new ApiError(404, "course not found")
     }
 
-    return res.status(200).json(200,
+    return res.status(200).json(
         new ApiResponse(200,course,"course sent succesfully")
     )
  })
@@ -163,7 +163,7 @@ const getAllCourses = asyncHandler(async (req,res) =>{
     select('thumbnail title description price category rating')
      
     if (!courses){
-        throw new ApiError('There was Some Error Fetching Courses')
+        throw new ApiError(500, 'There was Some Error Fetching Courses')
     }
 
     return res.status(200).json(
@@ -188,10 +188,10 @@ const checkEnrollment = asyncHandler(async(req,res)=>{
     const studenttobeEnrolled =await UserStudent.findById(student_id);
     const courseTobeEnrolled = await Courses.findById(course_id);
     if (!studenttobeEnrolled){
-        throw new ApiError('course id not found')
+        throw new ApiError(404, 'course id not found')
     }
     if (!courseTobeEnrolled){
-        throw new ApiError('student not found')
+        throw new ApiError(404, 'student not found')
     }
     
     const alreadyEnrolled = studenttobeEnrolled.Courses.includes(course_id);
@@ -216,7 +216,7 @@ const CourseProgress = asyncHandler(async (req, res) => {
     const studentId = req?.student?._id;
 
     if (!courseId) {
-        throw new ApiError("The course sent doesn't exist or is undefined");
+        throw new ApiError(400, "The course sent doesn't exist or is undefined");
     }
 
     // Fetch progress for the student in the given course
@@ -230,7 +230,7 @@ const CourseProgress = asyncHandler(async (req, res) => {
     const course = await Courses.findById(courseId).select('lectures assignments');
 
     if (!course || (!course.lectures && !course.assignments)) {
-        throw new ApiError("Encountered an error while fetching course details");
+        throw new ApiError(404, "Encountered an error while fetching course details");
     }
 
     const totalLectures = course?.lectures.length || 0;
