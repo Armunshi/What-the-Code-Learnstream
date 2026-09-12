@@ -1100,15 +1100,68 @@ shown during submission (`lecture.progress` / `assignment.progress`) was
 already there; the one missing piece was telling the user not to leave
 while it's in flight.
 
-**Not fixed, and worth its own change**: there is still no way to resume a
-partially-submitted course, and no server-side batching that would make the
-whole multi-module submission succeed or fail as one unit. The
-`beforeunload` warning prevents the accident; it doesn't make the operation
-atomic or resumable. If this needs to be bulletproof rather than
-warned-against, that's the next step, not this one.
+**Superseded 2026-09-13 — the atomic version was built.** The user pushed
+back on the `beforeunload`-only fix, correctly: from their side, filling in
+two modules and clicking Submit once looked like sending everything at once,
+so "only some of it saved" needed a real answer, not a warning dialog.
 
-**Verification**: `vite build` succeeds cleanly. e2e 13 passed / 2 failed —
-unchanged baseline.
+The concrete, numbers-backed answer: it wasn't one request. The old
+`handleSubmit` needed **7 separate sequential requests** for their exact
+course — create module 1, its 2 lectures, its assignment, create module 2,
+its lecture, its assignment — and the access log showed only the **first
+3** were ever sent. Requests 4 through 7 weren't lost to a network failure;
+the tab closed while the awaited chain was still on request 3, and
+JavaScript simply never reached the lines of code that would have fired the
+rest. One click of Submit was never one request.
+
+**Built `POST /courses/:course_id/modules/bulk`** — every module, lecture and
+assignment in the form goes in one multipart request
+(`src/services/bulk-module.service.js`), which the server either fully
+creates or fully rolls back. Not a MongoDB transaction: holding a DB session
+open across several slow external Cloudinary uploads is the wrong tool for
+this. Atomicity is explicit compensation instead — every module, lecture and
+assignment created so far is tracked as the loop runs, and if anything
+throws, all of it is deleted in reverse order, by id, through atomic
+`$pull`/`findByIdAndDelete` calls rather than by re-saving an in-memory
+document a later step may have already changed in the database directly.
+
+**Proved it, not just implemented it** — `scripts/verify-bulk-module-atomicity.js`
+(committed, safe to run standalone) exercises both directions against a real
+throwaway course: a fully valid 2-module submission succeeds completely, and
+a module whose second assignment collides on title with its first (forcing
+`createAssignment`'s own existing 409) is rolled back completely — the
+module document, its lecture, and its already-created first assignment are
+all gone, with zero trace anywhere, confirmed by querying the collections
+directly rather than trusting the HTTP response.
+
+**Found a second, real, pre-existing bug while building the failure-path
+test.** The deliberate duplicate-title collision didn't fail on the first
+attempt — `createAssignment`'s own uniqueness check
+(`Assignments.findOne({course_id, module_id, title})`) never matched
+anything, because `assignment.model.js` never declared a `course_id` field.
+Mongoose's default strict mode silently drops any field not in the schema,
+so every `Assignments.create({course_id: course._id, ...})` call had been
+discarding that value since this service was written — meaning the "same
+title already exists" guard had been dead code the entire time, silently
+allowing duplicate assignment titles within a module. Fixed by declaring the
+field (`lecture.model.js` has had the equivalent field all along); no
+application code changed, since `createAssignment` had always tried to set
+it correctly.
+
+`Courseupdatation.jsx`'s `handleSubmit` now builds one `FormData` (a JSON
+`structure` field plus indexed file fields —
+`module_<mi>_lecture_<li>`, `module_<mi>_assignment_<ai>_file_<fi>`) and
+sends one request instead of N. The `beforeunload` guard from the previous
+pass stays: closing the tab is still possible mid-upload of that one
+request, so warning against it is still worth doing, even though there is
+now only one moment it can hurt.
+
+**Verification**: `vite build` succeeds cleanly.
+`scripts/verify-bulk-module-atomicity.js`: 9/9, including the rollback
+checks. e2e 13 passed / 2 failed — unchanged baseline (this run also
+incidentally confirmed the suite needs the frontend dev server running
+separately on :2000; nothing auto-starts it, only the backend is spawned by
+`global-setup.ts`).
 
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).

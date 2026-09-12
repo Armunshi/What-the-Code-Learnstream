@@ -139,100 +139,89 @@ function ModuleForm() {
     );
   };
 
-  const addAssignmentToModule = async (createdModuleId, assignments) => {
-    for (const assignment of assignments) {
-      if (!(assignment.file && assignment.title)) continue;
-      patchItem(assignment.moduleId, 'assignments', assignment.id, { status: 'uploading', progress: 0, error: '' });
-      try {
-        const formdata = new FormData();
-        formdata.append('title', assignment.title);
-        formdata.append('assignmentFiles', assignment.file);
-        formdata.append('deadline', JSON.stringify(assignment.deadline));
-
-        await axios.post(
-          `/courses/${course_id}/modules/${createdModuleId}/assignments`,
-          formdata,
-          {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            onUploadProgress: (evt) => {
-              const pct = evt.total ? Math.round((evt.loaded * 100) / evt.total) : 0;
-              patchItem(assignment.moduleId, 'assignments', assignment.id, { progress: pct });
-            },
-          }
-        );
-        patchItem(assignment.moduleId, 'assignments', assignment.id, { status: 'done', progress: 100 });
-      } catch (error) {
-        console.error('Error adding assignment:', error);
-        patchItem(assignment.moduleId, 'assignments', assignment.id, {
-          status: 'error',
-          error: error.response?.data?.message || 'Upload failed',
-        });
-        throw error;
-      }
-    }
-  };
-
-  const addLectureToModule = async (createdModuleId, lectures) => {
-    for (const lecture of lectures) {
-      if (!(lecture.file && lecture.title)) continue;
-      patchItem(lecture.moduleId, 'lectures', lecture.id, { status: 'uploading', progress: 0, error: '' });
-      try {
-        const formData = new FormData();
-        formData.append('title', lecture.title);
-        formData.append('videourl', lecture.file);
-
-        await axios.post(
-          `/courses/${course_id}/modules/${createdModuleId}/lectures`,
-          formData,
-          {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            onUploadProgress: (evt) => {
-              const pct = evt.total ? Math.round((evt.loaded * 100) / evt.total) : 0;
-              patchItem(lecture.moduleId, 'lectures', lecture.id, { progress: pct });
-            },
-          }
-        );
-        patchItem(lecture.moduleId, 'lectures', lecture.id, { status: 'done', progress: 100 });
-      } catch (error) {
-        console.error('Error adding lecture:', error);
-        patchItem(lecture.moduleId, 'lectures', lecture.id, {
-          status: 'error',
-          error: error.response?.data?.message || 'Upload failed',
-        });
-        throw error;
-      }
-    }
-  };
-
+  // Sends every module, lecture and assignment across the whole form as ONE
+  // request, which the backend either fully creates or fully rolls back
+  // (BACKEND_AUDIT.md §3.20) — not one request per module, then one per
+  // lecture, then one per assignment, awaited in sequence, the way this used
+  // to work. That older shape is what let closing the tab partway through
+  // leave a course with its first module saved and everything queued after
+  // it — a second module, both modules' assignments — never even sent, since
+  // the browser's JavaScript simply stopped running before it reached those
+  // later requests. One request removes the "partway through" entirely:
+  // there is exactly one moment this can be interrupted at, which is before
+  // it's sent at all — the beforeunload warning above covers that moment.
   const handleSubmit = async (e) => {
     e.preventDefault();
     setBannerError('');
     setBannerSuccess('');
+
+    // A lecture/assignment row with no file or no title yet is a placeholder
+    // the user hasn't finished, not something to submit — the old per-item
+    // loops skipped these silently; do the same before building the request.
+    const submittableModules = modules.map((module) => ({
+      ...module,
+      lectures: module.lectures.filter((lecture) => lecture.file && lecture.title),
+      assignments: module.assignments.filter((assignment) => assignment.file && assignment.title),
+    }));
+
     setSubmitting(true);
 
+    const markAll = (patch) => {
+      submittableModules.forEach((module) => {
+        module.lectures.forEach((lecture) => patchItem(module.id, 'lectures', lecture.id, patch));
+        module.assignments.forEach((assignment) => patchItem(module.id, 'assignments', assignment.id, patch));
+      });
+    };
+    markAll({ status: 'uploading', progress: 0, error: '' });
+
+    const formData = new FormData();
+    formData.append(
+      'structure',
+      JSON.stringify(
+        submittableModules.map((module) => ({
+          title: module.name,
+          description: module.description || '',
+          lectures: module.lectures.map((lecture) => ({ title: lecture.title })),
+          assignments: module.assignments.map((assignment) => ({
+            title: assignment.title,
+            deadline: assignment.deadline,
+          })),
+        }))
+      )
+    );
+    // Field names the backend's bulk-module.service.js expects — the array
+    // index here must match the index of the same item in `structure` above,
+    // since that's how the two are correlated server-side.
+    submittableModules.forEach((module, mi) => {
+      module.lectures.forEach((lecture, li) => {
+        formData.append(`module_${mi}_lecture_${li}`, lecture.file);
+      });
+      module.assignments.forEach((assignment, ai) => {
+        // The backend accepts multiple files per assignment (_file_0, _file_1,
+        // ...); this form only ever collects one.
+        formData.append(`module_${mi}_assignment_${ai}_file_0`, assignment.file);
+      });
+    });
+
     try {
-      for (const module of modules) {
-        const response = await axios.post(
-          `/courses/${course_id}/modules`,
-          JSON.stringify({ title: module.name, description: module.description || '' }),
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-        const createdModuleId = response?.data?.data?._id;
+      await axios.post(`/courses/${course_id}/modules/bulk`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (evt) => {
+          const pct = evt.total ? Math.round((evt.loaded * 100) / evt.total) : 0;
+          markAll({ progress: pct });
+        },
+      });
 
-        await addLectureToModule(
-          createdModuleId,
-          module.lectures.map((l) => ({ ...l, moduleId: module.id }))
-        );
-        await addAssignmentToModule(
-          createdModuleId,
-          module.assignments.map((a) => ({ ...a, moduleId: module.id }))
-        );
-      }
-
+      markAll({ status: 'done', progress: 100 });
       setBannerSuccess('Modules submitted successfully!');
     } catch (error) {
       console.error('Error adding modules:', error);
-      setBannerError(error.response?.data?.message || 'Something went wrong while submitting modules.');
+      const message = error.response?.data?.message || 'Something went wrong while submitting modules.';
+      // All-or-nothing now: a failure here means the server rolled back
+      // everything in this submission, not just the one item that happened
+      // to be mid-upload when it failed.
+      markAll({ status: 'error', error: message });
+      setBannerError(message);
     } finally {
       setSubmitting(false);
     }

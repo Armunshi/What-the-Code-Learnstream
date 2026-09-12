@@ -1,6 +1,19 @@
 import mongoose, { Schema } from 'mongoose'
 
 const assignmentSchema = new Schema({
+    // Declared for the first time here — createAssignment (assignment.service.js)
+    // has always tried to set this on create(), but Mongoose's default strict
+    // mode silently drops any field not in the schema, so it was never actually
+    // stored. That silently broke createAssignment's own duplicate-title
+    // check, which filters on this field: `findOne({course_id, module_id,
+    // title})` matched nothing, ever, because no document had a course_id to
+    // match against — confirmed by a real duplicate-title submission that the
+    // check should have rejected and didn't. lecture.model.js has always had
+    // the equivalent field; this brings assignments in line with it.
+    course_id: {
+        type: Schema.Types.ObjectId,
+        ref: 'Courses',
+    },
     module_id: { // Links assignments to modules
         type: Schema.Types.ObjectId,
         ref: 'Modules',

@@ -2,6 +2,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import * as moduleService from "../../services/module.service.js";
+import * as bulkModuleService from "../../services/bulk-module.service.js";
 
 // Every handler here is: read the request, call a service, format a response.
 // req.course / req.module were resolved AND authorized by the route's
@@ -62,9 +63,29 @@ const getModuleById = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, module, "Module retrieved successfully"));
 });
 
+// Creates any number of modules, each with any number of lectures and
+// assignments, as one all-or-nothing request — BACKEND_AUDIT.md §3.20.
+// Replaces the old flow of one module, then its lectures, then its
+// assignments, as N separate awaited requests behind a single Submit click,
+// which a closed tab could interrupt partway through with no way to tell
+// which parts had actually been sent.
+const addModulesBulk = asyncHandler(async (req, res) => {
+    let modulesSpec;
+    try {
+        modulesSpec = JSON.parse(req.body.structure ?? "");
+    } catch {
+        throw new ApiError(400, "structure must be valid JSON");
+    }
+
+    const course = await bulkModuleService.createModulesBulk(req.course, modulesSpec, req.files ?? []);
+
+    return res.status(200).json(new ApiResponse(200, course, "Modules created successfully"));
+});
+
 export {
     getCourseModules,
     addModule,
+    addModulesBulk,
     deleteModule,
     updateModule,
     getModuleById
