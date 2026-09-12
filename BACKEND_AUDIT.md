@@ -597,7 +597,15 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 - [ ] Service layer extraction; thin controllers (§5.2).
 - [ ] `requireCourseOwner` / `requireEnrollment` route guards (§5.3).
 - [ ] Split `models/Course/courses.js` into three model files; break the circular import (§4.5).
-- [ ] Delete all dead code in §4.1; drop unused deps in §4.2; move `nodemon` to devDependencies and add a real `start`.
+- [x] Delete all dead code in §4.1; drop unused deps in §4.2; move `nodemon` to devDependencies and add a real `start` — 2026-09-12. Deleted `Course.controller.js`'s three dead cart handlers (the working ones are in `cart.controller.js` and are the ones actually routed), and `Modules.controller.js`'s `addLectureToModule`/`addAssignmentToModule`, which were exported but unrouted and would have thrown `ValidationError` on every call. The same-named functions in `frontend/src/Pages/Courseupdatation.jsx` are local helpers that call different endpoints — checked before deleting. Also removed the 33-line commented-out `createAssignment` block and the leftover `console.log` middleware in `assignments.routes.js`.
+
+  **Unused imports were swept mechanically, not by eye** — a throwaway script parsed every import in `src/` and checked each name against the file body with comments stripped. It found 14 files' worth, a superset of the five §4.1 listed, and re-running it after the edits reports clean. Worth repeating after B5's later chunks move code around.
+
+  Dropped `mongodb`, `validator`, `mongoose-aggregate-paginate-v2` and `fs-extra` (7 packages removed). `fs-extra`'s single use — `Lecture.controller.js`'s `fs.remove(videoLocalPath)` — was deleting a file `uploadOnCloudinary` had already `unlinkSync`'d on both its success and failure paths (`cloudinary.js:22,28`); it never errored only because `fs-extra`'s `remove` is idempotent on a missing path. `morgan` was also on the §4.2 suspect list but **is** in use (`app.js:21,24`) and stays.
+
+  Scripts are now `start: node src/index.js`, `dev: nodemon src/index.js`, `test: npm --prefix ../e2e test` — the Playwright suite is real and `exit 1` meant CI could never gate on it. `README.md` updated to point contributors at `npm run dev`, since `npm start` no longer watches files. The e2e suite spawns `node src/index.js` directly (`global-setup.ts:53`) and is unaffected.
+
+**Verification**: e2e suite 13 passed / 2 failed — identical to the B4 baseline, same two lecture-completion double-fire failures (frontend Module 5, unrelated). All 49 backend files pass `node --check`. Live dev backend smoke-checked after the edits: `/courses/getallCourses` 200, unauthenticated `/courses/:id/modules` still 401, `/courses/cart` still 401.
 
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).

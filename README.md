@@ -177,8 +177,10 @@ $ git clone https://github.com/prajyot-codes/WhatheCode-LearnStream
 ```bash
   $ cd Learnstream/backend
   $ npm install
-  $ npm start
+  $ npm run dev
 ```
+`npm run dev` runs the server under nodemon so it reloads on save. `npm start`
+runs plain `node` and is what production (Render) should use.
 
   
 ## 👨‍💻Team Members

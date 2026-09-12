@@ -1,5 +1,4 @@
 
-import mongooseAggregatePaginate from 'mongoose-aggregate-paginate-v2'
 import mongoose,{Schema} from 'mongoose'
 const courseSchema =new Schema({
         

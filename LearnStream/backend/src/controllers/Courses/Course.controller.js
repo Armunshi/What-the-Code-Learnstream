@@ -1,15 +1,12 @@
-import mongoose from "mongoose";
-import { Assignments, Courses, Lectures } from "../../models/Course/courses.js";
-// import { UserTeacher } from "../../models/student/userteachermodel.js";
+import { Courses } from "../../models/Course/courses.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary, uploadOnCloudinary } from "../../utils/cloudinary.js";
+import { uploadOnCloudinary } from "../../utils/cloudinary.js";
 import { UserStudent } from "../../models/user/userstudentmodel.js";
 import { Progress } from "../../models/Course/Progress.js";
 import { UserTeacher } from "../../models/user/userteachermodel.js";
 import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
-// import { Cart } from "../../models/Cart.js";
 
 const createCourse = asyncHandler(async (req,res)=> {
     // thumbnail upload using multer and cloudinary
@@ -278,75 +275,6 @@ const getCourseOwner = asyncHandler(async (req, res) => {
     new ApiResponse(200, owner, "Owner fetched successfully")
   );
 });
-
-const addToCart = asyncHandler(
-    async (req,res)=>{
-        const user_id = req.student._id;
-        const course_id = req.body;
-        if (!user_id){
-            throw new ApiError(401,'Unauthorized');
-        }
-
-        const updatedCart  = await Cart.findOneAndUpdate(
-            {user_id:user_id},
-            {$push:{courses:course_id}},
-            {new:true}
-        ).exec();
-
-        const populatedCart = await Cart.populate(updatedCart,{path:'courses'})
-
-        if (!populatedCart){
-            throw new ApiError(400,'Resource Was Not Found')
-        }
-
-        return res.status(200)
-        .json(
-            new ApiResponse(200,populatedCart,'Course Added successfully to Cart')
-        )
-    }
-)
-const removeFromCart = asyncHandler(
-    async ()=>{
-        const user_id  = req.student._id 
-        const course_id  = req.body;
-
-        const newCart = await Cart.findOneAndUpdate(
-            {user_id:user_id},
-            {$pull:{courses:course_id}},
-            {new:true}
-        ).exec();
-        
-        const populatedCart = await Cart.populate(newCart,{path:'courses'});
-
-        if (!populatedCart){
-            throw new ApiError(400,"Resource Not Found");
-        }
-
-        return res.status(200).json(
-            new ApiResponse(200,populatedCart,'Course removed from Cart')
-        )
-    }
-)
-
-const getCart = asyncHandler(
-    async(req,res)=>{
-         const user_id  = req.student._id 
-
-        const newCart = await Cart.findOne(
-            {user_id:user_id},
-        ).exec();
-        
-        const populatedCart = await Cart.populate(newCart,{path:'courses'});
-
-        if (!populatedCart){
-            throw new ApiError(400,"Resource Not Found");
-        }
-
-        return res.status(200).json(
-            new ApiResponse(200,populatedCart,'Cart Retrieved')
-        )
-    }
-)
 
 export {
     createCourse,

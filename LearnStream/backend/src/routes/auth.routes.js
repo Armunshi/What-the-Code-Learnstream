@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { verifyJWTCombined } from "../middleware/authcombined.middleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { UserStudent } from "../models/user/userstudentmodel.js";
 import { UserTeacher } from "../models/user/userteachermodel.js";

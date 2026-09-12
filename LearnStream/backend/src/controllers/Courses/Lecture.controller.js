@@ -1,15 +1,11 @@
-import mongoose from "mongoose";
-import { Assignments, Courses, Lectures } from "../../models/Course/courses.js";
-// import { UserTeacher } from "../../models/student/userteachermodel.js";
+import { Courses, Lectures } from "../../models/Course/courses.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { deleteMediaFromCloudinary, uploadOnCloudinary } from "../../utils/cloudinary.js";
-// import { UserStudent } from "../../models/student/userstudentmodel.js";
 import { Progress } from "../../models/Course/Progress.js";
 import { Modules } from "../../models/Course/Modules.js";
 import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
-import fs from 'fs-extra';
 
 const addLecture = asyncHandler(async (req, res) => {
     const { title } = req.body;
@@ -69,12 +65,6 @@ const addLecture = asyncHandler(async (req, res) => {
     if (!updatedCourse || !updatedModule) {
         throw new ApiError(404, 'Course/Module not found or failed to update');
     }
-
-    // Clean up temporary file
-
-    fs.remove(videoLocalPath, (err) => {
-        if (err) console.error('Error deleting temporary file:', err);
-    });
 
     return res.status(200).json(
         new ApiResponse(200, lecture, 'Added lecture successfully')

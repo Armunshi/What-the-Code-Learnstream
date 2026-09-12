@@ -4,7 +4,6 @@ import { Router } from 'express';
 import { upload } from '../../middleware/multer.middleware.js';
 import { verifyJWT } from "../../middleware/authteacher.middleware.js";
 import { verifyJWTStudent } from "../../middleware/authstudent.middleware.js";
-import { verifyJWTCombined } from "../../middleware/authcombined.middleware.js";
 import { createAssignment, deleteAssignment, getAssignmentById, getStudentsAndUploadedAssignments, markAssignmentCompleted, submitAssignment  } from '../../controllers/Courses/Assignment.controller.js';
 
 const router = Router()
@@ -30,10 +29,6 @@ router.route('/:courseId/assignments/:assignmentId')
 router.route('/:courseId/modules/:moduleId/assignments/:assignmentId')
     .delete(verifyJWT, deleteAssignment);
     router.route('/:courseId/assignments/:assignmentId/complete')
-    .post(verifyJWTStudent,(req,res,next)=>{
-        console.log(req.student._id)
-        console.log('hello');
-        next();
-    },markAssignmentCompleted);
+    .post(verifyJWTStudent, markAssignmentCompleted);
     
 export default router;

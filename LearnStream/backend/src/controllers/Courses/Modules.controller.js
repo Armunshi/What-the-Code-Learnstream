@@ -1,12 +1,8 @@
-import mongoose from "mongoose";
 import { Assignments, Courses, Lectures } from "../../models/Course/courses.js";
-// import { UserTeacher } from "../../models/student/userteachermodel.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary, uploadOnCloudinary } from "../../utils/cloudinary.js";
-import { UserStudent } from "../../models/user/userstudentmodel.js";
-import { Progress } from "../../models/Course/Progress.js";
+import { deleteMediaFromCloudinary } from "../../utils/cloudinary.js";
 import { Modules } from "../../models/Course/Modules.js";
 import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
@@ -31,70 +27,6 @@ const addModule = asyncHandler(async (req, res) => {
     await course.save();
 
     return res.status(200).json(new ApiResponse(200, newModule, "Module added successfully"));
-});
-const addLectureToModule = asyncHandler(async (req, res) => {
-    const { module_id } = req.params;
-    const { title } = req.body;
-    const videoLocalPath = req.file?.path;
-
-    if (!module_id || !title || !videoLocalPath) {
-        throw new ApiError(400, "Module ID, Lecture title, and video file are required");
-    }
-
-    const module = await Modules.findById(module_id);
-    if (!module) {
-        throw new ApiError(404, "Module not found");
-    }
-
-    const video = await uploadOnCloudinary(videoLocalPath);
-    const lecture = await Lectures.create({
-        title,
-        videourl: video.secure_url,
-        duration: video.duration,
-        public_id: video.public_id,
-        course_id: module.course
-    });
-
-    module.lectures.push(lecture._id);
-    await module.save();
-
-    return res.status(200).json(new ApiResponse(200, lecture, "Lecture added to module successfully"));
-});
-const addAssignmentToModule = asyncHandler(async (req, res) => {
-    const { module_id } = req.params;
-    const { title, deadline } = req.body;
-
-    if (!module_id || !title) {
-        throw new ApiError(400, "Module ID and Assignment title are required");
-    }
-
-    const module = await Modules.findById(module_id);
-    if (!module) {
-        throw new ApiError(404, "Module not found");
-    }
-
-    const assignmentFiles = req.files?.assignmentFiles;
-    if (!assignmentFiles || assignmentFiles.length === 0) {
-        throw new ApiError(400, "No assignments uploaded");
-    }
-
-    const filePaths = assignmentFiles.map(file => file.path);
-    const uploadedFiles = await uploadMultipleFilesOnCloudinary(filePaths);
-    const fileUrls = uploadedFiles.map(file => file.secure_url);
-    const public_ids = uploadedFiles.map(file => file.public_id);
-
-    const assignment = await Assignments.create({
-        course_id: module.course,
-        title,
-        assignmentUrls: fileUrls,
-        public_id: public_ids,
-        deadline
-    });
-
-    module.assignments.push(assignment._id);
-    await module.save();
-
-    return res.status(200).json(new ApiResponse(200, assignment, "Assignment added to module successfully"));
 });
 const updateModule = asyncHandler(async (req, res) => {
     const { module_id } = req.params;
@@ -228,8 +160,6 @@ const getModuleById = asyncHandler(async (req, res) => {
 
 export{
     getCourseModules,
-    addAssignmentToModule,
-    addLectureToModule,
     addModule,
     deleteModule,
     updateModule,
