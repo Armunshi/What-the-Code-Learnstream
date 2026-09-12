@@ -397,6 +397,44 @@ const existingAssignment = await Assignments.findOne({ course_id, module_id: mod
 
 `secure: true` requires a secure context. Chrome treats `http://localhost` as trustworthy so this often works locally, which is why it hasn't been decisively diagnosed — but it is fragile across browsers and breaks outright on any non-HTTPS non-localhost deployment. `UI_AUDIT.md` §2.6 already flagged refresh as depending on "a cookie that may be blocked"; this is the backend half of that symptom. Should derive from `NODE_ENV`, in one shared place.
 
+### 3.13 `course.assignments` is never written, so assignment progress is always zero
+
+Found 2026-09-12 while extracting the service layer (B5.5). `createAssignment`
+pushes the new assignment's id into its **module** (`Modules.findByIdAndUpdate(...
+$push: { assignments } )`) and never into the course. Nothing else in `src/` or
+`scripts/` writes `course.assignments` either — confirmed by grep.
+
+The array is declared on the course schema and read in two places:
+
+- **`CourseProgress`** computes `totalAssignments = course.assignments.length`,
+  so it reports **0 assignments for every course**, always, no matter how many
+  exist. The lecture half of the same response is correct, because
+  `addLecture` *does* push to both the module and the course.
+- **`deleteAssignment`** and the `deleteModule` cascade filter the array. Both
+  are silent no-ops on a permanently empty array — harmless, but they read as
+  if they are maintaining something.
+
+Not fixed: the correction changes the progress figures students see, so it
+belongs in its own change rather than inside a mechanical refactor. Either make
+`createAssignment` push to the course the way `addLecture` does (and backfill
+existing assignments), or derive `totalAssignments` from the modules and drop
+the field. Deriving is the better shape — it cannot drift.
+
+### 3.14 The frontend calls an assignment-submissions route that does not exist
+
+Found 2026-09-12. The frontend requests
+`/courses/:courseId/assignments/:assignmentId/submissions`, but no backend route
+defines it — the teacher-facing submissions handler is mounted at
+`/courses/:courseId/assignment/:assignmentId` (singular, no suffix). Every call
+on that path 404s. Either the frontend is pointing at a route that was renamed,
+or the endpoint was never built. Needs a decision, not just a path edit.
+
+Related: `freePreview` is stored on the lecture schema, set by `updateLecture`
+and selected in several queries, but is **read nowhere in the frontend** —
+there is no free-preview flow. That is why B5.4 could put `getLectureById`
+behind `requireEnrollment` without breaking anything, but it does mean the
+field is now inert.
+
 ---
 
 ## 4. P3 — Hygiene, dead code, consistency
@@ -604,7 +642,19 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 
 **Verification**: e2e 13 passed / 2 failed — unchanged baseline. This also exercises the path where the environment arrives through `spawn`'s `env` rather than a `.env` file (`global-setup.ts:56`), which still works because dotenv does not overwrite already-set variables. Server boots clean and logs the real port; live smoke checks pass.
 - [ ] Unified `User` model + `role` claim; collapse three auth middlewares into one (§5.4).
-- [ ] Service layer extraction; thin controllers (§5.2).
+- [x] Service layer extraction; thin controllers (§5.2) — 2026-09-12. `services/` now holds seven modules and no `req`/`res` reaches any of them. Three already existed as services in everything but location — `fulfilment.js` and `enrollment.js` moved out of `utils/`, and `cloudinary.js` split into `config/cloudinary.js` (credentials) and `services/media.service.js` (operations). Four are new: course, module, lecture, assignment. `utils/` is left holding `ApiError`, `ApiResponse` and `asyncHandler`, which is what it should always have been.
+
+  The four course-content controllers went from **909 lines to 466**, against 727 lines of service. Each handler is now parse → call service → respond; the multi-collection writes §5.2 blamed for §1.1, §1.2 and §2.3 — the module cascade, lecture creation touching three collections, assignment creation and deletion — are single named functions callable without an HTTP request, which is what makes them testable in B6.
+
+  Done in four commits with the e2e suite and `verify-ownership-guards.mjs` run between each, so a break would have been localised to one domain rather than found at the end of a 900-line diff.
+
+  **Two deliberate behaviour changes**, called out rather than buried: `createCourse` returned **401** for a missing thumbnail file, which is a 400 — neither an authentication nor an authorization failure; and the `console.log`s of whole documents in these five files are gone (§4.3 wanted them removed anyway). Everything else is shape-for-shape identical.
+
+  **Two things deliberately preserved**, each with a comment in the service saying so: `getCoursesByCategory`'s per-course author query (the §3.9 N+1) and `CourseProgress`'s always-zero `totalAssignments` (§3.13, found during this work). Fixing either inside a mechanical refactor would hide a behavioural change in a diff nobody would read that closely.
+
+  `UserStudent.controller.js` and `UserTeacher.controller.js` were **left alone on purpose** — B5.6 collapses both into one user model and one auth middleware, so extracting services from them now is work that change would throw away.
+
+**Verification**: e2e 13 passed / 2 failed — unchanged baseline at every one of the four steps. `verify-ownership-guards.mjs` 16/16. Live smoke checks against the real database confirm `getallCourses`, the category filter, `getCourseById` and `getTeacher` all still return their previous shapes.
 - [x] `requireCourseOwner` / `requireEnrollment` route guards (§5.3) — 2026-09-12. Both are composed at the route, so authorization is visible in the route table instead of depending on a developer remembering a call inside a handler body. They share one resolver table (`middleware/courseContext.js`); handlers now work from `req.course`/`req.module`/`req.lecture`/`req.assignment` — the objects that were actually authorized — and `utils/verifyOwnership.js` is deleted, fully absorbed.
 
   **Both guards resolve the course by walking *up* from the resource the route addresses** (lecture → module → course) rather than reading a course id out of the URL. That direction is what closes the bug class rather than the instances: the id being authorized and the id being acted on become the same object, so no second param is left to disagree with. It is §1.2's lesson applied at the route.
