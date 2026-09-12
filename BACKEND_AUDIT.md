@@ -718,21 +718,18 @@ await Progress.findOneAndUpdate(
 );
 
 // 2. Conditional, atomic record of the completion itself. The query's
-// `{ $ne: lectureId }` clause is what actually enforces uniqueness on
+// `{ $ne: lectureId }` clause is the *only* thing enforcing uniqueness on
 // lectureId — MongoDB evaluates the filter and applies the update as one
 // atomic operation, so two concurrent requests can never both see "not
-// present yet" the way two application-level findOne calls could. $addToSet
-// is the write operator (rather than $push) precisely because, once the
-// filter has already excluded any document that contains this lectureId,
-// $addToSet's own dedup check becomes an extra, harmless guarantee that the
-// entry truly is new — it is not, on its own, what prevents the duplicate
-// here (a bare $addToSet would still compare the *whole* subdocument
-// including `completedAt`, which is different on every call, so it could
-// not dedupe on `lectureId` alone by itself).
+// present yet" the way two application-level findOne calls could. The write
+// operator is a plain $push. $addToSet is NOT usable here: it compares the
+// whole subdocument, including `completedAt`, which differs on every
+// request — so every entry looks unique to it and it dedupes nothing, while
+// reading as though it guarantees uniqueness.
 const progress = await Progress.findOneAndUpdate(
     { studentId, courseId, "completedLectures.lectureId": { $ne: lectureId } },
     {
-        $addToSet: { completedLectures: { lectureId, completedAt: Date.now() } },
+        $push: { completedLectures: { lectureId, completedAt: Date.now() } },
         $inc: { completedLectureCount: 1 },
         $set: { lastUpdated: Date.now() },
     },

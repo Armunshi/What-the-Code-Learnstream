@@ -272,11 +272,13 @@ const markAssignmentCompleted = asyncHandler(async (req, res) => {
     const studentId = req.student?._id;
 
     // See Lecture.controller.js's markLectureCompleted for the full
-    // rationale: atomic get-or-create + $addToSet guarded by a $ne filter,
+    // rationale: atomic get-or-create followed by a $ne-guarded $push,
     // rather than findOne-then-create, so the {studentId, courseId} unique
     // index (§3.8) can't turn a concurrent request into a duplicate-key
     // error, and rapid duplicate clicks can't silently create a second
-    // completedAssignments entry for the same assignment.
+    // completedAssignments entry for the same assignment. $addToSet is not
+    // usable here either — `completedAt` differs per request, so it would
+    // see every entry as unique.
     await Progress.findOneAndUpdate(
         { studentId, courseId },
         { $setOnInsert: { studentId, courseId } },
@@ -286,7 +288,7 @@ const markAssignmentCompleted = asyncHandler(async (req, res) => {
     await Progress.findOneAndUpdate(
         { studentId, courseId, "completedAssignments.assignmentId": { $ne: assignmentId } },
         {
-            $addToSet: { completedAssignments: { assignmentId, completedAt: Date.now() } },
+            $push: { completedAssignments: { assignmentId, completedAt: Date.now() } },
             $set: { lastUpdated: Date.now() },
         },
         { new: true }
