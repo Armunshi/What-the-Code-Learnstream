@@ -85,8 +85,15 @@ const CourseProgress = asyncHandler(async (req, res) => {
         throw new ApiError(400, "The course sent doesn't exist or is undefined");
     }
 
+    // req.student doesn't exist any more — the B5.6 user-model unification
+    // replaced it with req.user, set by verifyAuth. This one survived the
+    // mechanical rename because `req?.student?._id` (optional chaining on
+    // `req` itself) doesn't match the literal substring `req.student` that
+    // the rename script searched for. Left as `undefined`, Progress.findOne
+    // silently dropped the key and matched by courseId alone — returning
+    // any student's progress for that course, or none, never THIS student's.
     const progress = await courseService.getCourseProgress({
-        studentId: req?.student?._id,
+        studentId: req.user._id,
         courseId,
     });
 

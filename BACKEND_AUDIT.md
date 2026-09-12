@@ -841,6 +841,72 @@ exact-match query would have missed), and the `12@12.com` *teacher* returns 404
 collection, so a 401 would have meant the old data was still being read).
 Production login re-probed immediately afterwards: still 401, not 404.
 
+### §3.16 — Third-party cookie blocking signed students out mid-session, live in production
+
+Found and fixed 2026-09-12, reported by a real student (piyushdas): freshly
+signed in, clicked into a course they were genuinely enrolled in, and got
+signed out with no lectures shown.
+
+**Ruled out first, with evidence, not assumption.** A full reproduction against
+production — fresh signup, real cookies, the student genuinely enrolled in
+piyushdas's exact course, the same 4 calls `ViewStudentModule.jsx` makes on
+mount, in order — returned 200 on every one. The backend's authorization logic
+is correct. That result is what redirected the investigation toward something
+`curl` cannot reproduce: real browser cookie policy.
+
+**Root cause, confirmed at the header level.** `curl -i` against a real
+signup showed `Set-Cookie: studentAccessToken=...; HttpOnly; Secure;
+SameSite=None` — no `Partitioned` attribute. The frontend
+(`learnstream-chi.vercel.app`) and this API (`onrender.com`) are different
+domains, so `SameSite=None` is required for the cookie to be sent cross-site at
+all — but without `Partitioned`, that makes it an ordinary third-party cookie,
+exactly the kind Chrome now blocks or drops by default. `checkEnrolled()` in
+`ViewStudentModule.jsx` sends an explicit `Authorization: Bearer` header and
+kept working; `loadModules()` and `courseProgressDetails()` rely on the cookie
+alone and would fail the moment the browser drops it — then the axios
+interceptor's silent refresh (also cookie-only) fails the same way, and the
+frontend logs the user out. Matches the reported symptom exactly.
+
+**Fix — `partitioned: true` on every cookie**
+(`controllers/UserAuth/auth.controller.js`'s shared `cookieOptions`, all 6 call
+sites). Opts into CHIPS: the cookie stays `Secure`/`HttpOnly` but is stored in
+a partition keyed to the top-level site, which Chrome permits even with
+third-party cookies otherwise blocked. Confirmed present in a fresh local
+`Set-Cookie` header (`express`'s bundled `cookie@0.7.1` supports the option;
+older versions silently drop it — don't downgrade past what's pinned).
+`loadModules`/`courseProgressDetails` in `ViewStudentModule.jsx` also now send
+the bearer token explicitly, matching `checkEnrolled`, as defense-in-depth for
+browsers where CHIPS isn't honoured.
+
+**A second, unrelated regression found in the same file while diagnosing
+this**: `CourseProgress` still read `req?.student?._id`. B5.6's mechanical
+rename searched for the substring `req.student` and missed this one because
+of the `?` between `req` and the dot. Left as `undefined`, `Progress.findOne`
+silently dropped the key from the query and matched by `courseId` alone —
+returning *some* student's progress for that course, or none, never
+necessarily the caller's. Fixed to `req.user._id`. Swept the rest of `src/`
+for the same `req?.student`/`req?.teacher` shape — none remain.
+
+**Found but NOT fixed this pass — same missing-Authorization-header pattern,
+in files with no existing auth-context wiring to build on:**
+`Pages/TeachersPage.jsx` (`GET /courses/teacher/:teacher_id` — the teacher
+dashboard's equivalent of the exact bug just fixed), `Pages/ViewtheModules.jsx`
+(the teacher's module-management view — doesn't import `AuthContext` at all),
+and `components/YourWork.jsx` (3 calls: view/submit/complete an assignment,
+the entire student assignment flow). The root-cause `partitioned: true` fix
+should resolve all of these too, since it fixes the cookie itself rather than
+each caller — but they were not given the explicit-header defense-in-depth
+`ViewStudentModule.jsx` got, because patching files that don't yet pull `auth`
+into scope, with no frontend test suite to catch a mistake, is a different
+risk profile than adding one header where the context was already available.
+Verify against production after this deploys; if third-party cookie blocking
+still bites on any of these three, they need the same header + wiring.
+
+**Verification**: e2e 13 passed / 2 failed — unchanged baseline.
+`verify-ownership-guards.mjs` 16/16. Local `Set-Cookie` confirmed carrying
+`Partitioned`. All diagnostic accounts created against production during this
+investigation were removed afterward.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).

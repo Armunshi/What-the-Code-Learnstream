@@ -13,10 +13,28 @@ import { ROLES, User } from "../../models/user.model.js";
 // response body still carries `role` beside the user. The frontend reads both,
 // so unifying the backend must not change either.
 
+// The frontend (learnstream-chi.vercel.app) and this API (onrender.com) are
+// different domains, so these cookies are cross-site by construction and
+// require sameSite: "none". Without `partitioned`, that makes them ordinary
+// third-party cookies — exactly the kind Chrome now blocks or silently drops
+// by default, which reproduced as real students getting signed out mid-session
+// on any request that relied on the cookie alone rather than the bearer token
+// (confirmed: production Set-Cookie headers had no Partitioned attribute, and
+// curl-based reproduction with cookies present worked while requests over the
+// same cookie failed in the browser).
+//
+// `partitioned: true` opts into CHIPS (Cookies Having Independent Partitioned
+// State): the cookie is still Secure and HttpOnly, but is stored in a
+// partition keyed to the top-level site (learnstream-chi.vercel.app), which
+// Chrome permits even with third-party cookies otherwise blocked. Express's
+// bundled `cookie` package (0.7.1+) emits the `Partitioned` attribute for this
+// option; older cookie-parser versions would silently drop it, so don't
+// downgrade past what's pinned in package-lock.json.
 const cookieOptions = {
     httpOnly: true,
     secure: true,
     sameSite: "none",
+    partitioned: true,
     maxAge: 24 * 60 * 60 * 1000, // 1 day
 };
 
