@@ -636,3 +636,108 @@ Phased in the same order as the B-modules so a file's tests land alongside its f
 4. Continue into B2 (error handling) with tests, then work through T3/T4 as B3/B4 are reached — keeping "fix a module" and "test that module" as one motion rather than a separate sweep at the end.
 
 **Not doing**: a coverage-percentage target, snapshot testing, or end-to-end browser tests (Cypress/Playwright) — out of scope here, this section is backend controller/integration coverage only.
+
+---
+
+## 10. Architectural Patterns & Rationale
+
+Reference notes on three patterns introduced during the B1–B3 fixes, for anyone (including a future session) who needs to reuse or explain them. Each cites the actual current code, not a simplified version of it.
+
+### 10.1 Authorization & ownership: `assertCourseOwnership`
+
+`utils/verifyOwnership.js`:
+
+```js
+const assertCourseOwnership = (course, teacherId) => {
+    if (!course) {
+        throw new ApiError(404, "Course not found");
+    }
+    if (course.author.toString() !== teacherId.toString()) {
+        throw new ApiError(403, "You are not authorized to modify this course");
+    }
+};
+```
+
+**Why a manual guard function instead of an RBAC framework.** This app has exactly one authorization rule that matters for write access: *a teacher may only mutate a course they authored.* There are no roles beyond student/teacher, no per-resource permission sets, and no need to compose multiple policies. A policy engine (CASL, an ACL table, a permissions middleware framework) would add a dependency, a new mental model, and a layer of indirection to express a rule that a two-line `if` already states exactly and legibly. `assertCourseOwnership` is called at the top of every mutating handler (`addModule`/`updateModule`/`deleteModule` in `Modules.controller.js:22,109,132`; `addLecture`/`updateLecture`/`deleteLecture` in `Lecture.controller.js:24,95,141`; `createAssignment`/`deleteAssignment`/`getStudentsAndUploadedAssignments` in `Assignment.controller.js`; `getEnrolledStudents` in `Course.controller.js`) — one line, same shape, same failure modes (404 if the resource doesn't exist, 403 if it exists but isn't theirs), grep-able by name. The cost of "not an RBAC framework" is that this rule is repeated at each call site rather than declared once at the route table — that's the real gap, and it's exactly what `requireCourseOwner` (§6.1, Module B5) is planned to close *without* introducing a general-purpose permission system, by making the same check a route-level middleware instead of an in-handler call.
+
+**Teacher ownership vs. student access are different questions, checked differently, on purpose.** `assertCourseOwnership` only ever answers "does this teacher own this course" — it has no concept of a student at all, and is never called from a student-facing read path. A student is never "the owner" of a course in this data model; a course's `author` field (`courses.js`) is always a `UserTeacher` reference. What a student *does* have is enrollment, which is a completely separate relationship: `course.enrolledStudents[]` (an array of `UserStudent` ids on the `Courses` document itself — there is no separate `Enrollment` collection in this codebase) records who has paid for read access, and `Progress` (`models/Course/Progress.js`) separately tracks how much of that content a given student has consumed. `getCourseModules` (`Modules.controller.js:172-207`) is the clearest example of both checks living side by side without being conflated:
+
+```js
+const isOwner = req.teacher && course.author.toString() === req.teacher._id.toString();
+const isEnrolled = req.student && course.enrolledStudents.some(
+    (studentId) => studentId.toString() === req.student._id.toString()
+);
+```
+
+`isOwner` is a write-permission-shaped question (would this caller be allowed to change the course), reusing the exact same comparison `assertCourseOwnership` makes. `isEnrolled` is a consumption-permission-shaped question (has this caller paid for this content) and is checked independently, against a different field, because they are genuinely different facts about the caller — a course's own teacher is not "enrolled" in it, and an enrolled student never becomes its author. Keeping them as two separate booleans (rather than folding both into one generic `hasAccess` check) is what let this handler give owners and enrolled students full data while giving everyone else a stripped response, instead of a single allow/deny — a permission model expressive enough to need that distinction is exactly the case a bespoke check handles more clearly than a generic one.
+
+### 10.2 Asynchronous media cleanup: `Promise.allSettled` in cascading deletes
+
+Every cascading delete that touches Cloudinary (`deleteModule` in `Modules.controller.js:121-170`, `deleteAssignment` in `Assignment.controller.js`) follows the same two-step shape:
+
+```js
+const cloudinaryDeletions = [
+    ...module.lectures.map((lecture) =>
+        deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type)
+    ),
+    ...module.assignments.flatMap((assignment) =>
+        assignment.public_id.map((id, i) =>
+            deleteMediaFromCloudinary(id, assignment.resourceTypes?.[i])
+        )
+    ),
+];
+const cloudinaryResults = await Promise.allSettled(cloudinaryDeletions);
+cloudinaryResults.forEach((result) => {
+    if (result.status === "rejected") {
+        console.error("Cloudinary cleanup failed during module delete:", result.reason);
+    }
+});
+```
+
+**Why `allSettled` and not `all`.** Cloudinary is a third-party network call outside this process's control — it can time out, rate-limit, or 404 on an asset that was already deleted out of band. `Promise.all` rejects as soon as *any* promise in the batch rejects, discarding the outcomes of every other promise in flight, including ones that already succeeded. In a batch of, say, ten assignment files, one Cloudinary hiccup would `all`-reject the whole batch — the handler's `catch` (or, before this fix, no catch at all — see §2.5) would then abort before the database records are cleaned up, leaving the DB and Cloudinary inconsistent with each other and the other nine files' *successful* deletions unrecorded anywhere. `Promise.allSettled` never short-circuits: every promise runs to completion regardless of the others' outcomes, and the returned array reports each one's own `{status: "fulfilled"} | {status: "rejected", reason}` — which is exactly what the `.forEach()` above inspects, logging only the failures instead of throwing. This is also what makes it safe to delete the parent module/course records unconditionally right after: a failed Cloudinary delete becomes a logged, inspectable orphan (exactly the kind the migration script in §7/B3 exists to clean up later) rather than a crash that leaves the parent record un-deleted while some of its children are already gone.
+
+This directly replaced the pre-fix code (§2.5) that fired Cloudinary deletes inside a bare `forEach(async (id) => { await deleteMediaFromCloudinary(id) })` — `forEach` never awaits its callback's returned promises, so the handler proceeded immediately, and any rejection became an **unhandled promise rejection**, which terminates the Node process by default on Node 15+. `Promise.allSettled` fixes both problems in the same change: it waits for real completion, and it can never itself reject.
+
+### 10.3 Concurrency control in progress tracking: races, silent double entries, and the atomic fix
+
+**The race.** The pre-fix `markLectureCompleted`/`markAssignmentCompleted` (`Lecture.controller.js`, `Assignment.controller.js`) both followed this shape: `findOne` the student's `Progress` document, check in application code whether the lecture/assignment id is already in the array, and — only if not — push it and `.save()`. This is a classic read-modify-write critical section with no lock around it. Two requests for the same completion arriving close enough together (a genuine double-click, or — concretely, in this codebase — the still-open checkbox/label markup bug in `LectureAssig.jsx` that fires two `POST /complete` calls from one physical click, tracked separately under Module 5) can both execute their `findOne` before either has written its result back: both see the array *without* the new id, both conclude "not yet completed," and both proceed to push and save.
+
+**Silent vs. explicit double entry.** Without a database-level constraint, that race produces a **silent double entry**: two `{lectureId, completedAt}` rows for the *same* lecture end up in `completedLectures[]`, `completedLectureCount` gets incremented twice for one real completion, and every request in the race still returns `200 OK` — nothing errors, nothing is logged, the corruption is only visible if someone later inspects the array's contents. This is the more dangerous failure mode precisely because it produces no signal. An **explicit double entry**, by contrast, is what happens once a database-level uniqueness constraint exists and something tries to violate it anyway: MongoDB rejects the write outright with a duplicate-key error (`E11000`), which surfaces as a real, visible error the caller (and the error handler, §2.1) can see and react to. Adding the `{studentId, courseId}` unique index on `ProgressSchema` (`models/Course/Progress.js:46`, §3.8) moved the *document-creation* half of this problem from silent to explicit — but only the creation half; it does nothing by itself to stop the *array-push* half from silently double-entering, because pushing into an existing document's array isn't a constraint violation at all under a plain `$push`.
+
+**The atomic fix.** Both handlers now do two atomic operations instead of one non-atomic read-modify-write:
+
+```js
+// 1. Get-or-create — idempotent regardless of how many requests race here;
+//    the unique index guarantees at most one Progress document ever exists
+//    per (studentId, courseId), so a concurrent double-insert attempt now
+//    fails loudly (explicit) instead of silently succeeding twice.
+await Progress.findOneAndUpdate(
+    { studentId, courseId },
+    { $setOnInsert: { studentId, courseId } },
+    { upsert: true }
+);
+
+// 2. Conditional, atomic record of the completion itself. The query's
+// `{ $ne: lectureId }` clause is what actually enforces uniqueness on
+// lectureId — MongoDB evaluates the filter and applies the update as one
+// atomic operation, so two concurrent requests can never both see "not
+// present yet" the way two application-level findOne calls could. $addToSet
+// is the write operator (rather than $push) precisely because, once the
+// filter has already excluded any document that contains this lectureId,
+// $addToSet's own dedup check becomes an extra, harmless guarantee that the
+// entry truly is new — it is not, on its own, what prevents the duplicate
+// here (a bare $addToSet would still compare the *whole* subdocument
+// including `completedAt`, which is different on every call, so it could
+// not dedupe on `lectureId` alone by itself).
+const progress = await Progress.findOneAndUpdate(
+    { studentId, courseId, "completedLectures.lectureId": { $ne: lectureId } },
+    {
+        $addToSet: { completedLectures: { lectureId, completedAt: Date.now() } },
+        $inc: { completedLectureCount: 1 },
+        $set: { lastUpdated: Date.now() },
+    },
+    { new: true }
+) ?? await Progress.findOne({ studentId, courseId });
+```
+
+If the lecture is already completed, the filter matches no document, `findOneAndUpdate` returns `null`, and the handler falls back to a plain read so the response still reflects current state — a repeat completion is a no-op, not an error, which matches what a user clicking an already-checked box should experience. **Live-verified under real concurrency**: the e2e suite's rapid-double-click regression test fires four near-simultaneous `POST /complete` requests for the same lecture against this exact code path; all four return `200` with zero duplicate-key errors — the test still fails, by design, on its network-layer assertion that only one request should have fired at all (that's the still-open frontend checkbox/label bug, Module 5's problem, not this endpoint's), but the endpoint itself no longer crashes or silently double-writes under the race it's actually exercising. The "exactly one entry" guarantee itself is enforced by MongoDB's documented atomicity of a single `findOneAndUpdate` — the filter-then-update pair is evaluated as one indivisible operation server-side, not re-checked empirically per call.

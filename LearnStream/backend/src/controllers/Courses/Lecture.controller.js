@@ -198,8 +198,14 @@ const markLectureCompleted = asyncHandler(async (req, res) => {
     // A bare findOne-then-create/push has a race under concurrent requests —
     // exactly what BACKEND_AUDIT.md §3.8's new {studentId, courseId} unique
     // index would turn into a duplicate-key 500 instead of a silent
-    // duplicate. Get-or-create the Progress doc atomically first, then
-    // atomically push the completion only if it isn't already recorded.
+    // duplicate (a "silent double entry": two completedLectures rows for the
+    // same lecture, 200 OK, no error, corrupted data). Get-or-create the
+    // Progress doc atomically first, then atomically record the completion
+    // only if it isn't already recorded, using $addToSet guarded by a $ne
+    // filter — the filter is what actually enforces uniqueness on
+    // `lectureId` (each entry's `completedAt` differs, so a bare $addToSet
+    // wouldn't dedupe on its own); $addToSet then adds the entry knowing the
+    // filter already guarantees it isn't a duplicate.
     await Progress.findOneAndUpdate(
         { studentId, courseId },
         { $setOnInsert: { studentId, courseId } },
@@ -209,7 +215,7 @@ const markLectureCompleted = asyncHandler(async (req, res) => {
     const progress = await Progress.findOneAndUpdate(
         { studentId, courseId, "completedLectures.lectureId": { $ne: lectureId } },
         {
-            $push: { completedLectures: { lectureId, completedAt: Date.now() } },
+            $addToSet: { completedLectures: { lectureId, completedAt: Date.now() } },
             $inc: { completedLectureCount: 1 },
             $set: { lastUpdated: Date.now() },
         },
