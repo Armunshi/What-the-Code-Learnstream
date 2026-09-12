@@ -105,6 +105,17 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
 
   try {
     const razorpay = new window.Razorpay(options);
+    // Razorpay's own recommended pattern: bind payment.failed explicitly
+    // rather than relying on modal.ondismiss alone. A failed attempt shows
+    // its own error inside the Razorpay modal, which the user then has to
+    // close — ondismiss should cover that too, but the two events aren't
+    // documented as mutually exclusive, and a stuck "Processing…" button
+    // was reported in exactly this failed-then-closed sequence. Binding
+    // both is defense-in-depth: onSettled is idempotent (setLoading(false)
+    // twice is harmless), so there's no downside to both firing.
+    razorpay.on("payment.failed", (response) => {
+      fail(response?.error?.description || "Payment failed. Please try again.");
+    });
     razorpay.open();
   } catch (err) {
     fail(err?.message || "Could not open the checkout window. Please try again.");

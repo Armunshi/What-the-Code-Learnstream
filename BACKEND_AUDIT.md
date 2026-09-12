@@ -998,6 +998,70 @@ fixed" list — same pattern, still no auth-context wiring to build on.
 **Verification**: `vite build` succeeds cleanly. e2e 13 passed / 2 failed —
 unchanged baseline.
 
+### §3.19 — Deep-link 404 on hard refresh (confirmed live); payment.failed hardening
+
+Investigated 2026-09-12 against a reported multi-step failure: a failed
+Razorpay payment left "Buy Now" stuck on `Processing…`, a second attempt via
+the Cart page failed the same way, "My Courses" scrolled laggy afterward, and
+a hard refresh crashed to a 404 that browser back-navigation couldn't escape.
+
+**Confirmed live, not inferred**: `curl` a deep client-side route directly —
+`GET https://learnstream-chi.vercel.app/student/<id>` — returns Vercel's own
+platform `NOT_FOUND` (body: `"The page could not be found / NOT_FOUND"`,
+carrying a Vercel request id), while `/` returns 200. There is no
+`vercel.json` anywhere in the repo. React Router never gets a chance to run —
+Vercel's edge rejects the request before any HTML is served. This is the
+standard, well-documented failure mode for a client-side-routed SPA with no
+server-side (or edge) rewrite to `index.html`.
+
+**This one root cause explains two of the reported symptoms, not just one.**
+The 404-on-refresh is the direct effect. The "back button doesn't
+work — keeps showing 404" is the *same* cause working sideways: once the
+browser has actually loaded Vercel's raw 404 document, it has left the SPA
+entirely — pressing Back is now a real, fresh network navigation to whatever
+URL is next in history, not an SPA-internal route change. If that URL is also
+a deep route (and most of a session's history is, in a single-page app), it
+independently 404s for the identical reason. It isn't a broken back button;
+every deep-linked URL in this app 404s on its own the moment it's requested
+directly, and Back is just requesting one.
+
+One part of the original report was a misdiagnosis worth correcting rather
+than building a fix around: "the user's access token / user ID was still in
+the URL during the 404" is normal browser behavior — the address bar always
+reflects the requested URL regardless of what the server returned, on every
+site, always. Nothing in this app puts a token in a URL; `user_id` there is
+a route param (an object id), not a secret, and was never one.
+
+**Fix**: `frontend/vercel.json` added with a catch-all rewrite to
+`index.html`, so every path is served the SPA shell and React Router takes
+over client-side. Needs a deploy to verify — `curl` the same deep route again
+afterward and confirm 200, the way every other production fix this session
+was verified.
+
+**Payment button stuck on `Processing…`** — the code was already more
+defensive than the reported symptom suggested: `displayRazorpay.js` (shared
+by both `Payment.jsx`'s course-page button and `Cart.jsx`'s checkout button)
+already wires `modal.ondismiss` to release the button, and
+`handlePaymentSuccess` releases it on success. There was, however, no
+explicit `payment.failed` handler — only the dismiss handler, which Razorpay's
+own docs treat as a separate, not-guaranteed-equivalent event from an actual
+failed-charge attempt. Added `razorpay.on('payment.failed', ...)` as
+defense-in-depth alongside the existing dismiss handler; `onSettled` is
+idempotent, so having both fire costs nothing.
+
+**"My Courses" scrolling was laggy after the failed attempts — not
+root-caused.** `StudentPage.jsx` and `GeneralCourses.jsx` show no obvious
+infinite-effect or leak pattern (dependency arrays are correct, no unbounded
+lists), and the dataset is small (13 courses total in the whole database) —
+unlikely to be a rendering-scale problem. Recorded rather than guessed at: a
+real diagnosis needs a Chrome Performance-tab recording taken *during* the
+lag, which no code inspection substitutes for. Worth checking whether
+Razorpay's checkout iframe/modal is fully torn down after a failed attempt —
+that's a plausible mechanism, not a confirmed one.
+
+**Verification**: `vite build` succeeds cleanly with both changes. e2e 13
+passed / 2 failed — unchanged baseline.
+
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
 - [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
