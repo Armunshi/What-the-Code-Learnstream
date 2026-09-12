@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import multer from "multer";
 import { ApiError } from "../utils/ApiError.js";
+import { env } from "../config/env.js";
 
 // Registered last in app.js. Serializes every error — ApiError or not — to the
 // same {statusCode, data, message, success} envelope ApiResponse uses, instead
@@ -31,7 +32,7 @@ const errorHandler = (err, req, res, next) => {
         errors: error.errors,
     };
 
-    if (process.env.NODE_ENV !== "production") {
+    if (!env.isProduction) {
         response.stack = error.stack;
     }
 

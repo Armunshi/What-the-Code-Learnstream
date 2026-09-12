@@ -1,6 +1,7 @@
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
 import { UserStudent } from "../models/user/userstudentmodel.js";
 const verifyJWTStudent = asyncHandler(async (req,res,next)=>{
    try {
@@ -10,7 +11,7 @@ const verifyJWTStudent = asyncHandler(async (req,res,next)=>{
          throw new ApiError(401,"Unauthorized Request")
      }
  
-     const decodedtoken = jwt.verify(token,process.env.ACCESS_TOKEN_SECRET)
+     const decodedtoken = jwt.verify(token,env.accessToken.secret)
      const user = await UserStudent.findById(decodedtoken?._id).select(
          "-password -refreshToken")
      

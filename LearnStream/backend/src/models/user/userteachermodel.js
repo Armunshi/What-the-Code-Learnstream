@@ -1,3 +1,4 @@
+import { env } from "../../config/env.js";
 import mongoose,{Schema} from 'mongoose'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
@@ -55,8 +56,8 @@ userteacherSchema.methods.generateAccessToken = function (){
             name:this.name,
             
         },
-        process.env.ACCESS_TOKEN_SECRET,{
-            expiresIn: process.env.ACCESS_TOKEN_EXPIRY
+        env.accessToken.secret,{
+            expiresIn: env.accessToken.expiry
         }
     )
 }
@@ -66,8 +67,8 @@ userteacherSchema.methods.generateRefreshToken = function (){
         {
             _id: this._id,
         },
-        process.env.REFRESH_TOKEN_SECRET,{
-            expiresIn:process.env.REFRESH_TOKEN_EXPIRY
+        env.refreshToken.secret,{
+            expiresIn:env.refreshToken.expiry
         }
     )
 }

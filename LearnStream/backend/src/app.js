@@ -1,5 +1,7 @@
-import dotenv from "dotenv";
-dotenv.config(); // 👈 load environment variables before anything else
+// Imported first and for its side effect as much as its value: config/env.js
+// is where dotenv is loaded and every variable is validated, so importing it
+// here guarantees the rest of this file sees a checked environment.
+import { env } from "./config/env.js"
 
 import express from "express"
 import cors from "cors"
@@ -17,7 +19,7 @@ const accessLog = (tokens, req, res) => {
 };
 
 // Registered first so the measured time covers body parsing, CORS, uploads and the handler.
-if (process.env.NODE_ENV === 'production') {
+if (env.isProduction) {
     app.use(morgan('combined'))
 } else {
     fs.mkdirSync(path.resolve('logs'), { recursive: true })
@@ -40,11 +42,9 @@ app.use(express.json({
     },
 }))
 
-const allowedOrigins = process.env.CORS_ORIGIN.split(",").map(origin => origin.trim());
-
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || env.corsOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.error("Blocked by CORS:", origin);

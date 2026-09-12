@@ -1,5 +1,6 @@
 
 import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
 import { UserTeacher } from "../models/user/userteachermodel.js";
 import { UserStudent } from "../models/user/userstudentmodel.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -14,7 +15,7 @@ const verifyJWTCombined = asyncHandler(async (req, res, next) => {
     // Check teacher
     if (teacherToken) {
         try {
-            const decoded = jwt.verify(teacherToken, process.env.ACCESS_TOKEN_SECRET);
+            const decoded = jwt.verify(teacherToken, env.accessToken.secret);
             const teacher = await UserTeacher.findById(decoded._id).select("-password -refreshToken");
             if (teacher) {
                 req.teacher = teacher;
@@ -28,7 +29,7 @@ const verifyJWTCombined = asyncHandler(async (req, res, next) => {
     // Check student
     if (!isAuthorized && studentToken) {
         try {
-            const decoded = jwt.verify(studentToken, process.env.ACCESS_TOKEN_SECRET);
+            const decoded = jwt.verify(studentToken, env.accessToken.secret);
             const student = await UserStudent.findById(decoded._id).select("-password -refreshToken");
             if (student) {
                 req.student = student;

@@ -8,6 +8,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { fulfilOrder } from '../utils/fulfilment.js';
 import crypto from 'crypto';
+import { env } from '../config/env.js';
 
 // Signature comparison in constant time. A plain !== leaks, through response
 // timing, how long a prefix of a guessed signature was correct.
@@ -17,9 +18,13 @@ const signaturesMatch = (a, b) => {
   return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
 };
 
+// Still constructed at module load, but that is no longer a hazard: both keys
+// are required entries in config/env.js, so a missing one now fails at boot
+// with a message naming the variable instead of a Razorpay constructor error
+// from the middle of an import (BACKEND_AUDIT.md §4.6).
 const instance = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+  key_id: env.razorpay.keyId,
+  key_secret: env.razorpay.keySecret,
 });
 
 const createOrder = asyncHandler(async (req, res) => {
@@ -96,7 +101,7 @@ const verifyPayment = asyncHandler(async (req, res) => {
 
   const sign = razorpay_order_id + '|' + razorpay_payment_id;
   const expectedSignature = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .createHmac('sha256', env.razorpay.keySecret)
     .update(sign.toString())
     .digest('hex');
 
@@ -172,7 +177,7 @@ const verifyPayment = asyncHandler(async (req, res) => {
 // connectivity, this is what still enrolls them. Unauthenticated by design —
 // see the route definition for why.
 const razorpayWebhook = asyncHandler(async (req, res) => {
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const secret = env.razorpay.webhookSecret;
   if (!secret) {
     // Loud, not silent: a webhook that quietly no-ops is indistinguishable
     // from not having one, which is the exact gap this endpoint closes.

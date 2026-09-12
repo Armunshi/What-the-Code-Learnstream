@@ -592,7 +592,17 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
 - [x] **Backfill legacy `course_id` orders and reconcile.** Done 2026-09-12. 37 of 64 orders predated the multi-course cart and stored a singular `course_id` the schema doesn't declare, so Mongoose reported `course_ids: []` and fulfilment enrolled nobody while stamping the order paid. `fulfilOrder` now refuses to mark such an order fulfilled. `scripts/migrate-legacy-order-course-ids.js` recovered all 37 — 31 from the local field, and the remaining 6 from the Razorpay order's `notes`, which is authoritative provider data rather than a guess. `scripts/reset-bogus-fulfilment-markers.js` cleared the markers an earlier reconcile pass wrote without enrolling anyone. Final state: 0 lost, 0 drifted, 0 missing `course_ids`.
 
 ### Module B5 — Restructure (§6)
-- [ ] `config/env.js` with fail-fast validation (§4.6).
+- [x] `config/env.js` with fail-fast validation (§4.6) — 2026-09-12. One module owns dotenv and validates all 14 variables at import; every other file imports `env` instead of touching `process.env` (zero `process.env` reads remain outside it). It reports **every** problem at once rather than the first — a fresh clone is now one pass, not one restart per missing variable; verified against an empty environment, which lists all 11 required entries. Added `.env.example` documenting each one.
+
+  Fixed along the way: `app.js`'s `CORS_ORIGIN.split(",")` at module scope (a `TypeError` about `.split` of undefined, thrown from an import, which named neither the variable nor the cause); `index.js` logging `process.env.PORT` and printing `undefined` whenever the `|| 8000` fallback was used; and the four separate `dotenv.config()` calls that worked only because import hoisting happened to run `app.js`'s first — an ordering nothing enforced.
+
+  Two deliberate non-changes. **`RAZORPAY_WEBHOOK_SECRET` is optional**, not required: `backend/.env` does not have one, and B4 designed the webhook to refuse each call loudly while it is unset (§2.8). Promoting it to a required entry would stop the whole server booting over a feature not yet registered in the Razorpay dashboard — a far worse failure than the one it guards. Verified after the change that `POST /payment/webhook` still answers "Webhook is not configured". **The tutorial-default token secrets warn rather than throw** — B0's production rotation is still open, and refusing to boot would take production down for a rotation that is the operator's to schedule.
+
+  Razorpay's client is still constructed at module load, which §4.6 flagged. That is no longer the hazard it was: both keys are required config entries, so a missing one now fails at boot naming the variable, instead of surfacing as a Razorpay constructor error from the middle of an import.
+
+  `scripts/*.js` still call `dotenv.config()` themselves and were left alone on purpose. They are standalone operational tools, and routing them through `config/env.js` would make a cleanup script that needs only `MONGODB_URI` refuse to run without Razorpay keys.
+
+**Verification**: e2e 13 passed / 2 failed — unchanged baseline. This also exercises the path where the environment arrives through `spawn`'s `env` rather than a `.env` file (`global-setup.ts:56`), which still works because dotenv does not overwrite already-set variables. Server boots clean and logs the real port; live smoke checks pass.
 - [ ] Unified `User` model + `role` claim; collapse three auth middlewares into one (§5.4).
 - [ ] Service layer extraction; thin controllers (§5.2).
 - [ ] `requireCourseOwner` / `requireEnrollment` route guards (§5.3).

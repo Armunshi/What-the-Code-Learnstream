@@ -1,22 +1,15 @@
-
-// require('dotenv').config({path: './env'})
-import dotenv from "dotenv"
+import { env } from "./config/env.js";
 import connectDB from "./db/index.js";
-import {app} from './app.js'
-dotenv.config({
-    path: './.env'
-})
-
+import { app } from "./app.js";
 
 connectDB()
-.then(() => {
-    app.listen(process.env.PORT || 8000, () => {
-        console.log(`⚙️ Server is running at port : ${process.env.PORT}`);
+    .then(() => {
+        // Log the port actually bound, not process.env.PORT — that printed
+        // "undefined" whenever the fallback was used (BACKEND_AUDIT.md §4.6).
+        app.listen(env.port, () => {
+            console.log(`⚙️ Server is running at port : ${env.port}`);
+        })
     })
-})
-.catch((err) => {
-    console.log("MONGO db connection failed !!! ", err);
-})
-
-
-
+    .catch((err) => {
+        console.log("MONGO db connection failed !!! ", err);
+    })

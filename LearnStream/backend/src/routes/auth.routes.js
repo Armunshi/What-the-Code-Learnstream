@@ -5,6 +5,7 @@ import { UserTeacher } from "../models/user/userteachermodel.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken"
+import { env } from "../config/env.js";
 import { generateAccessAndRefreshTokens as generateTeacherTokens } from "../controllers/UserAuth/UserTeacher.controller.js";
 import { generateAccessAndRefreshTokens as generateStudentTokens } from "../controllers/UserAuth/UserStudent.controller.js";
 
@@ -24,7 +25,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
     let decodedToken;
     try {
-        decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+        decodedToken = jwt.verify(incomingRefreshToken, env.refreshToken.secret);
     } catch (error) {
         throw new ApiError(401, error?.message || "Invalid refresh token");
     }

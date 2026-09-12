@@ -3,6 +3,7 @@ import { ApiError } from '../../utils/ApiError.js'
 import { UserTeacher } from '../../models/user/userteachermodel.js';
 import { ApiResponse  } from '../../utils/ApiResponse.js'
 import  jwt  from 'jsonwebtoken';
+import { env } from '../../config/env.js';
 // const User = require('../models/student/userteachermodel');
  const options = {
         httpOnly: true,
@@ -128,7 +129,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 
     let decoded;
     try {
-        decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+        decoded = jwt.verify(refreshToken, env.refreshToken.secret);
     } catch (err) {
         throw new ApiError(401, "Invalid or expired refresh token");
     }

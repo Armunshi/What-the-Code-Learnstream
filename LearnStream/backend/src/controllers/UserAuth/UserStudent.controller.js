@@ -3,9 +3,8 @@ import { ApiError } from '../../utils/ApiError.js'
 import { UserStudent } from '../../models/user/userstudentmodel.js';
 import { ApiResponse  } from '../../utils/ApiResponse.js'
 import  jwt  from 'jsonwebtoken';
+import { env } from '../../config/env.js';
 
-import dotenv from "dotenv";
-dotenv.config()
 
 
  const options = {
@@ -179,7 +178,7 @@ const logoutUserStudent = asyncHandler(async (req, res) => {
 
     let decoded;
     try {
-        decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+        decoded = jwt.verify(refreshToken, env.refreshToken.secret);
     } catch (err) {
         throw new ApiError(401, "Invalid or expired refresh token");
     }
