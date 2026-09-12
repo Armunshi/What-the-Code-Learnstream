@@ -47,6 +47,7 @@ await import(`${BACKEND}/src/db/index.js`);
 await mongoose.connect(`${process.env.MONGODB_URI}/guardtest`);
 
 const { UserTeacher } = await import(`${BACKEND}/src/models/user/userteachermodel.js`);
+const { UserStudent } = await import(`${BACKEND}/src/models/user/userstudentmodel.js`);
 const { Courses } = await import(`${BACKEND}/src/models/course.model.js`);
 const { Modules } = await import(`${BACKEND}/src/models/module.model.js`);
 const { Lectures } = await import(`${BACKEND}/src/models/lecture.model.js`);
@@ -118,6 +119,48 @@ check("bob's lecture still exists", afterAttack ? 1 : 0, 1);
 const ownUrl = `/courses/${bobs.course._id}/modules/${bobs.module._id}/lectures/${bobs.lecture._id}`;
 check('PUT own lecture (control)', (await call('PUT', ownUrl, bob.token, { title: 'renamed by owner' })).status, 200);
 check("owner's edit applied", (await Lectures.findById(bobs.lecture._id)).title === 'renamed by owner' ? 1 : 0, 1);
+
+// ---------------------------------------------------------------------------
+// requireEnrollment (§1.1 / §3.7): paid content must not be readable by a
+// signed-in student who never bought the course.
+// ---------------------------------------------------------------------------
+const outsider = await UserStudent.create({
+  name: 'mallory', email: 'mallory@s.com', password: 'password123', username: 'mallory',
+});
+const outsiderToken = outsider.generateAccessToken();
+
+const enrolled = await UserStudent.create({
+  name: 'erin', email: 'erin@s.com', password: 'password123', username: 'erin',
+});
+const enrolledToken = enrolled.generateAccessToken();
+bobs.course.enrolledStudents.push(enrolled._id);
+await bobs.course.save();
+enrolled.Courses.push(bobs.course._id);
+await enrolled.save();
+
+const lectureUrl = `/courses/${bobs.course._id}/modules/${bobs.module._id}/lectures/${bobs.lecture._id}`;
+
+const outsiderRead = await call('GET', lectureUrl, outsiderToken);
+check('GET a paid lecture as a non-enrolled student', outsiderRead.status, 403);
+const leaked = JSON.stringify(outsiderRead.body?.data ?? {});
+check('response carried no videourl', leaked.includes('videourl') ? 0 : 1, 1);
+check('response carried no public_id', leaked.includes('public_id') ? 0 : 1, 1);
+
+const enrolledRead = await call('GET', lectureUrl, enrolledToken);
+check('GET the same lecture as an enrolled student (control)', enrolledRead.status, 200);
+check('enrolled student still receives videourl', enrolledRead.body?.data?.videourl ? 1 : 0, 1);
+
+check(
+  'GET the same lecture as the owning teacher (control)',
+  (await call('GET', lectureUrl, bob.token)).status,
+  200,
+);
+
+check(
+  'mark lecture complete as a non-enrolled student',
+  (await call('POST', `/courses/${bobs.course._id}/lectures/${bobs.lecture._id}/complete`, outsiderToken)).status,
+  403,
+);
 
 // §1.2 — cross-teacher student PII must stay closed.
 check("GET alice's enrolled students as bob", (await call('GET', `/courses/${alices.course._id}/students`, bob.token)).status, 403);

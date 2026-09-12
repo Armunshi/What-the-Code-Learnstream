@@ -5,6 +5,7 @@ import { upload } from '../../middleware/multer.middleware.js';
 import { verifyJWT } from "../../middleware/authteacher.middleware.js";
 import { verifyJWTStudent } from "../../middleware/authstudent.middleware.js";
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
+import { requireEnrollment } from "../../middleware/requireEnrollment.js";
 import { createAssignment, deleteAssignment, getAssignmentById, getStudentsAndUploadedAssignments, markAssignmentCompleted, submitAssignment  } from '../../controllers/Courses/Assignment.controller.js';
 
 const router = Router()
@@ -20,6 +21,7 @@ router.route('/:course_id/modules/:moduleId/assignments')
 router.route('/:courseId/assignments/:assignmentId/upload')
     .post(
         verifyJWTStudent,
+        requireEnrollment('assignment'),
         upload.fields([{ name: 'submissionFiles', maxCount: 10 }]),
         submitAssignment
     ); // Submit an assignment
@@ -27,10 +29,10 @@ router.route('/:courseId/assignments/:assignmentId/upload')
 router.route('/:courseId/assignment/:assignmentId')
 .get(verifyJWT, requireCourseOwner('assignment'), getStudentsAndUploadedAssignments)
 router.route('/:courseId/assignments/:assignmentId')
-.get(verifyJWTStudent,getAssignmentById);
+.get(verifyJWTStudent, requireEnrollment('assignment'), getAssignmentById);
 router.route('/:courseId/modules/:moduleId/assignments/:assignmentId')
     .delete(verifyJWT, requireCourseOwner('assignment'), deleteAssignment);
     router.route('/:courseId/assignments/:assignmentId/complete')
-    .post(verifyJWTStudent, markAssignmentCompleted);
+    .post(verifyJWTStudent, requireEnrollment('assignment'), markAssignmentCompleted);
     
 export default router;

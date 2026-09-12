@@ -5,6 +5,7 @@ import { upload } from "../../middleware/multer.middleware.js";
 import { verifyJWTStudent } from "../../middleware/authstudent.middleware.js";
 import { verifyJWTCombined } from "../../middleware/authcombined.middleware.js";
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
+import { requireEnrollment } from "../../middleware/requireEnrollment.js";
 import { addLecture, deleteLecture, getAllLectures, getLectureById, getLecturesCompleted, markLectureCompleted, updateLecture } from '../../controllers/Courses/Lecture.controller.js';
 
 
@@ -17,11 +18,11 @@ router.route('/:course_id/modules/:moduleId/lectures')
     .get(verifyJWTCombined, getAllLectures); // Get all lectures for a module
 
 router.route('/:course_id/modules/:moduleId/lectures/:lecture_id')
-    .get(verifyJWTCombined, getLectureById) // Get a specific lecture
+    .get(verifyJWTCombined, requireEnrollment('lecture'), getLectureById) // Get a specific lecture
     .delete(verifyJWT, requireCourseOwner('lecture'), deleteLecture) // Delete a lecture
     .put(verifyJWT, requireCourseOwner('lecture'), updateLecture) // update a lecture
 
 router.route('/:courseId/lectures/:lectureId/complete')
-    .post(verifyJWTStudent, markLectureCompleted); // Mark lecture as completed
+    .post(verifyJWTStudent, requireEnrollment('course'), markLectureCompleted); // Mark lecture as completed
 router.route('/:courseId/completed').get(verifyJWTStudent,getLecturesCompleted);
 export default router
