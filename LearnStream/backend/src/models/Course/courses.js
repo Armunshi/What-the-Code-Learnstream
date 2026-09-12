@@ -1,7 +1,6 @@
 
 import mongooseAggregatePaginate from 'mongoose-aggregate-paginate-v2'
 import mongoose,{Schema} from 'mongoose'
-import { Modules } from './Modules.js';
 const courseSchema =new Schema({
         
         thumbnail:{
@@ -78,6 +77,13 @@ const lectureSchema = new Schema({
         type:String,
         required:true
     },
+    // Cloudinary's `uploader.destroy()` defaults to resource_type "image" and
+    // silently no-ops otherwise — this has to be stored at upload time so
+    // deletes can pass the right one back (BACKEND_AUDIT.md §2.4).
+    resource_type:{
+        type:String,
+        default:"video"
+    },
     freePreview:{
         type:Boolean,
         default:false
@@ -117,6 +123,14 @@ const assignmentSchema = new Schema({
             default: '',
         },
     ],
+    // Parallel to `public_id` — same reasoning as lectureSchema.resource_type
+    // above (BACKEND_AUDIT.md §2.4).
+    resourceTypes: [
+        {
+            type: String,
+            default: 'raw',
+        },
+    ],
     deadline: {
         required:false,
         type: Date,
@@ -138,6 +152,13 @@ const assignmentSchema = new Schema({
             uploadedAt: {
                 type: Date,
                 default: Date.now,
+            },
+            // Was previously written by submitAssignment but absent from this
+            // subschema, so Mongoose's strict mode silently dropped it on
+            // every save — lateness was never actually persisted (§2.6).
+            submittedOnTime: {
+                type: Boolean,
+                default: true,
             },
         },
     ],
@@ -164,21 +185,13 @@ const assignmentSchema = new Schema({
     ],
 }, { timestamps: true });
 
-courseSchema.pre('remove', async function (next) {
-    try {
-        // Find all modules associated with the course
-        const modules = await Modules.find({ course_id: this._id });
-
-        // Iterate over modules and remove them (triggers Module's pre('remove') middleware)
-        for (const module of modules) {
-            await module.remove();
-        }
-
-        next();
-    } catch (error) {
-        next(error);
-    }
-});
+// No course-delete endpoint exists anywhere in this codebase, so there is
+// nothing for a cascade hook to protect yet. The `pre('remove')` hook that
+// used to live here was dead code regardless (Mongoose 8 removed document
+// `remove()` entirely, so it never fired) and also queried a field
+// (`course_id`) that doesn't exist on Modules — see BACKEND_AUDIT.md §2.3.
+// If a delete-course feature is added, write its cascade explicitly in the
+// controller (the way deleteModule now does), not as a schema hook.
 
 const Courses = mongoose.model("Courses",courseSchema);
 const Lectures = mongoose.model("Lectures",lectureSchema);

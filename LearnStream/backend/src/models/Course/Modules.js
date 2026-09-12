@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { Assignments, Lectures } from './courses.js';
 const { Schema } = mongoose;
 
 const moduleSchema = new Schema({
@@ -27,19 +26,10 @@ const moduleSchema = new Schema({
 }, {
     timestamps: true
 });
-moduleSchema.pre('remove', async function (next) {
-    try {
-        // Delete all lectures associated with the module
-        await Lectures.deleteMany({ module_id: this._id });
-
-        // Delete all assignments associated with the module
-        await Assignments.deleteMany({ module_id: this._id });
-
-        next();
-    } catch (error) {
-        next(error);
-    }
-});
+// This used to carry a `pre('remove')` cascade-delete hook, but document
+// `remove()` was removed entirely in Mongoose 8 — the hook never fired.
+// deleteModule (Modules.controller.js) now does this cascade explicitly
+// instead (BACKEND_AUDIT.md §2.3).
 
 const Modules = mongoose.model('Modules', moduleSchema);
 

@@ -18,7 +18,7 @@ const completedAssignmentSchema = new Schema({
     },
     completedAt:{
         type:Date,
-        default:Date.now()
+        default:Date.now
     }
 })
 const ProgressSchema = new Schema({
@@ -34,7 +34,7 @@ const ProgressSchema = new Schema({
     completedAssignments:[completedAssignmentSchema],
     completedLectureCount: {
         type: Number,
-        default: 0 
+        default: 0
     },
     lastUpdated: {
         type: Date,
@@ -43,6 +43,7 @@ const ProgressSchema = new Schema({
 },{
     timestamps:true
 })
+ProgressSchema.index({ studentId: 1, courseId: 1 }, { unique: true });
 
 const Progress = mongoose.model('Progress',ProgressSchema);
 

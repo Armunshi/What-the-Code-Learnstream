@@ -61,9 +61,17 @@ const uploadMultipleFilesOnCloudinary = async (filePaths) => {
       throw error;
   }
 };
-const deleteMediaFromCloudinary = async (publicId) => {
+const deleteMediaFromCloudinary = async (publicId, resourceType = "image") => {
     try {
-      await cloudinary.uploader.destroy(publicId);
+      // uploader.destroy() defaults to resource_type "image" and silently
+      // no-ops against anything else — videos and raw files need the real
+      // type passed explicitly, which callers now store on the model at
+      // upload time (BACKEND_AUDIT.md §2.4).
+      const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      if (result.result !== "ok" && result.result !== "not found") {
+        console.error(`Cloudinary destroy did not succeed for ${publicId} (${resourceType}):`, result);
+      }
+      return result;
     } catch (error) {
       console.log(error);
       throw new Error("failed to delete assest from cloudinary");

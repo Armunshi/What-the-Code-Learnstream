@@ -45,7 +45,8 @@ const addLecture = asyncHandler(async (req, res) => {
         videourl: videoUrl,
         duration: video_duration,
         public_id: video_public_id,
-        module_id: moduleId 
+        resource_type: video.resource_type,
+        module_id: moduleId
     });
 
     if (!lecture) {
@@ -105,11 +106,12 @@ const updateLecture = asyncHandler(async (req, res) => {
 
     // Handle video replacement if a new video file is uploaded
     if (req.file?.path) {
-        await deleteMediaFromCloudinary(lecture.public_id);
+        await deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type);
 
         const video = await uploadOnCloudinary(req.file.path);
         lecture.videourl = video.secure_url;
         lecture.public_id = video.public_id;
+        lecture.resource_type = video.resource_type;
         lecture.duration = video.duration;
     }
 
@@ -138,9 +140,9 @@ const deleteLecture = asyncHandler(async (req,res)=>{
     }
     assertCourseOwnership(course, req.teacher._id);
 
-    await deleteMediaFromCloudinary(lecture.public_id);
+    await deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type);
 
-    //delete from courses array 
+    //delete from courses array
     course.lectures = course.lectures.filter(lectureId =>!lectureId
         .equals(lecture_id))
     await course.save();
@@ -193,31 +195,26 @@ const markLectureCompleted = asyncHandler(async (req, res) => {
     const { courseId, lectureId } = req.params;
     const studentId = req.student?._id;
 
-    let progress = await Progress.findOne({ studentId, courseId });
+    // A bare findOne-then-create/push has a race under concurrent requests —
+    // exactly what BACKEND_AUDIT.md §3.8's new {studentId, courseId} unique
+    // index would turn into a duplicate-key 500 instead of a silent
+    // duplicate. Get-or-create the Progress doc atomically first, then
+    // atomically push the completion only if it isn't already recorded.
+    await Progress.findOneAndUpdate(
+        { studentId, courseId },
+        { $setOnInsert: { studentId, courseId } },
+        { upsert: true }
+    );
 
-    if (!progress) {
-        // If progress doesn't exist, create a new entry
-        progress = await Progress.create({
-            studentId,
-            courseId,
-            completedLectures: [{ lectureId, completedAt: Date.now() }],
-            completedLectureCount: 1,
-            lastUpdated: Date.now()
-        });
-    } else {
-        // Check if lecture already exists
-        const isAlreadyCompleted = progress.completedLectures.some(
-            (lecture) => lecture.lectureId.toString() === lectureId
-        );
-
-        if (!isAlreadyCompleted) {
-            // **Add new completed lecture**
-            progress.completedLectures.push({ lectureId, completedAt: Date.now() });
-            progress.completedLectureCount = progress.completedLectures.length;
-        }
-    }
-
-    await progress.save();
+    const progress = await Progress.findOneAndUpdate(
+        { studentId, courseId, "completedLectures.lectureId": { $ne: lectureId } },
+        {
+            $push: { completedLectures: { lectureId, completedAt: Date.now() } },
+            $inc: { completedLectureCount: 1 },
+            $set: { lastUpdated: Date.now() },
+        },
+        { new: true }
+    ) ?? await Progress.findOne({ studentId, courseId });
 
     return res.status(200).json(new ApiResponse(200, progress, "Marked Lecture as Completed"));
 });

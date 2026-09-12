@@ -121,7 +121,9 @@ const updateModule = asyncHandler(async (req, res) => {
 const deleteModule = asyncHandler(async (req, res) => {
     const { module_id } = req.params;
 
-    const module = await Modules.findById(module_id);
+    const module = await Modules.findById(module_id)
+        .populate('lectures')
+        .populate('assignments');
     if (!module) {
         throw new ApiError(404, "Module not found");
     }
@@ -129,7 +131,38 @@ const deleteModule = asyncHandler(async (req, res) => {
     const course = await Courses.findById(module.course);
     assertCourseOwnership(course, req.teacher._id);
 
-    await module.deleteOne(); // Triggers the `pre` middleware for cleanup
+    // Explicit cascade delete — the schema's `pre('remove')` hooks never
+    // fired (Mongoose 8 removed document `remove()` entirely) and left
+    // every lecture/assignment underneath orphaned, plus a dangling id in
+    // the parent course's `modules[]` array (BACKEND_AUDIT.md §2.3).
+    const cloudinaryDeletions = [
+        ...module.lectures.map((lecture) =>
+            deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type)
+        ),
+        ...module.assignments.flatMap((assignment) =>
+            assignment.public_id.map((id, i) =>
+                deleteMediaFromCloudinary(id, assignment.resourceTypes?.[i])
+            )
+        ),
+    ];
+    const cloudinaryResults = await Promise.allSettled(cloudinaryDeletions);
+    cloudinaryResults.forEach((result) => {
+        if (result.status === "rejected") {
+            console.error("Cloudinary cleanup failed during module delete:", result.reason);
+        }
+    });
+
+    await Lectures.deleteMany({ _id: { $in: module.lectures.map((l) => l._id) } });
+    await Assignments.deleteMany({ _id: { $in: module.assignments.map((a) => a._id) } });
+
+    const lectureIds = new Set(module.lectures.map((l) => l._id.toString()));
+    const assignmentIds = new Set(module.assignments.map((a) => a._id.toString()));
+    course.modules = course.modules.filter((id) => !id.equals(module._id));
+    course.lectures = course.lectures.filter((id) => !lectureIds.has(id.toString()));
+    course.assignments = course.assignments.filter((id) => !assignmentIds.has(id.toString()));
+    await course.save();
+
+    await module.deleteOne();
 
     return res.status(200).json(
         new ApiResponse(200, null, "Module deleted successfully")

@@ -82,6 +82,7 @@ const createAssignment = asyncHandler(async (req, res) => {
 
     const fileUrls = uploadedFiles.map((file) => file.secure_url);
     const public_ids = uploadedFiles.map((file) => file.public_id);
+    const resourceTypes = uploadedFiles.map((file) => file.resource_type);
 
     const parsedDeadline = deadline && !isNaN(new Date(deadline)) ? new Date(deadline) : null;
 
@@ -90,6 +91,7 @@ const createAssignment = asyncHandler(async (req, res) => {
         module_id: moduleId,
         title,
         public_id: public_ids,
+        resourceTypes,
         assignmentUrls: fileUrls,
         deadline: parsedDeadline,
     });
@@ -124,27 +126,30 @@ const createAssignment = asyncHandler(async (req, res) => {
 const submitAssignment = asyncHandler(async (req,res)=>{
     const {assignmentId} = req?.params;
     const studentId = req.student._id
-    const {deadline} = req.body;
-    console.log(assignmentId, studentId,deadline);
-    if(!studentId ||!assignmentId ||!deadline){
-        throw new ApiError(404,'assignmentId || studentId ||deadline are missing')
+
+    if(!studentId ||!assignmentId){
+        throw new ApiError(400,'assignmentId or studentId are missing')
     }
 
-    const submittedOnTime = Date.now()<deadline?true:false;
+    // Lateness must be decided from the assignment's own stored deadline, not
+    // a client-supplied one — a student could otherwise post any future
+    // timestamp and always be recorded on time (BACKEND_AUDIT.md §2.6).
+    const assignment = await Assignments.findById(assignmentId);
+    if (!assignment) {
+        throw new ApiError(404, "Assignment not found");
+    }
+    const submittedOnTime = !assignment.deadline || Date.now() <= assignment.deadline.getTime();
 
     const submissionFiles = req.files?.submissionFiles;
 
     if (!submissionFiles || submissionFiles.length==0) throw new ApiError(400, 'no assignments uploaded');
-    
-    console.log(submissionFiles)
-    
+
     const filePaths = submissionFiles.map((file)=>file.path)
     const uploadedFiles = await uploadMultipleFilesOnCloudinary(filePaths);
 
     const fileUrls  = uploadedFiles.map((file)=>file.secure_url)
-    // const public_ids = uploadedFiles.map((file)=>file.public_id)
 
-    const submittedAssignment = await Assignments.findByIdAndUpdate(assignmentId,
+    await Assignments.findByIdAndUpdate(assignmentId,
         {
             $push:{uploadedAssignments:{
                 studentId,
@@ -196,11 +201,20 @@ const deleteAssignment = asyncHandler(async (req,res)=>{
     }
     assertCourseOwnership(course, req.teacher._id);
 
-    assignment.public_id.forEach(async (id)=>{
-        await deleteMediaFromCloudinary(id);
-    })
+    // forEach with an async callback ignores the returned promises — any
+    // rejection became an unhandled promise rejection, which terminates the
+    // process on Node 15+ (BACKEND_AUDIT.md §2.5). Promise.allSettled waits
+    // for every deletion and logs failures instead of crashing mid-delete.
+    const cloudinaryResults = await Promise.allSettled(
+        assignment.public_id.map((id, i) => deleteMediaFromCloudinary(id, assignment.resourceTypes?.[i]))
+    );
+    cloudinaryResults.forEach((result) => {
+        if (result.status === "rejected") {
+            console.error("Cloudinary cleanup failed during assignment delete:", result.reason);
+        }
+    });
 
-    //delete from courses array 
+    //delete from courses array
     course.assignments = course.assignments.filter(assignment_id =>!assignment_id
         .equals(assignment._id))
     await course.save();
@@ -257,33 +271,24 @@ const markAssignmentCompleted = asyncHandler(async (req, res) => {
     console.log(courseId,assignmentId);
     const studentId = req.student?._id;
 
-    // Find the student's progress for the given course
-    let progress = await Progress.findOne({ studentId, courseId });
+    // See Lecture.controller.js's markLectureCompleted for why this is an
+    // atomic get-or-create + conditional push rather than findOne-then-create:
+    // the new {studentId, courseId} unique index (§3.8) makes a bare
+    // find-then-create race a duplicate-key error under concurrent requests.
+    await Progress.findOneAndUpdate(
+        { studentId, courseId },
+        { $setOnInsert: { studentId, courseId } },
+        { upsert: true }
+    );
 
-    if (!progress) {
-        // If progress doesn't exist, create a new entry
-        progress = await Progress.create({
-            studentId,
-            courseId,
-            completedAssignments: [{ assignmentId, completedAt: Date.now() }],
-            completedAssignmentCount: 1,
-            lastUpdated: Date.now()
-        });
-    } else {
-        // Check if the assignment is already marked as completed
-        const isAlreadyCompleted = progress.completedAssignments.some(
-            (assignment) => assignment.assignmentId.toString() === assignmentId
-        );
-
-        if (!isAlreadyCompleted) {
-            // **Add new completed assignment**
-            progress.completedAssignments.push({ assignmentId, completedAt: Date.now() });
-            progress.completedAssignmentCount = progress.completedAssignments.length;
-        }
-    }
-
-    // Save the progress
-    await progress.save();
+    await Progress.findOneAndUpdate(
+        { studentId, courseId, "completedAssignments.assignmentId": { $ne: assignmentId } },
+        {
+            $push: { completedAssignments: { assignmentId, completedAt: Date.now() } },
+            $set: { lastUpdated: Date.now() },
+        },
+        { new: true }
+    );
 
     // Respond with success
     return res.status(200).json(new ApiResponse(200, true, "Marked Assignment as Completed"));

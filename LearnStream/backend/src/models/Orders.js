@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 
 const orderSchema = new mongoose.Schema({
-  course_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course", required: true }],
+  course_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: "Courses", required: true }],
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: "UserStudent", required: true },
   razorpayOrder_id: { type: String, required: true },
   razorpayPayment_id: { type: String },
