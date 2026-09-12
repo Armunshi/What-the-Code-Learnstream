@@ -4,6 +4,7 @@ import { verifyJWT } from "../../middleware/authteacher.middleware.js";
 import { upload } from "../../middleware/multer.middleware.js";
 import { verifyJWTStudent } from "../../middleware/authstudent.middleware.js";
 import { verifyJWTCombined } from "../../middleware/authcombined.middleware.js";
+import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
 import { addLecture, deleteLecture, getAllLectures, getLectureById, getLecturesCompleted, markLectureCompleted, updateLecture } from '../../controllers/Courses/Lecture.controller.js';
 
 
@@ -12,13 +13,13 @@ const router = Router()
 // Lectures
 // Lectures
 router.route('/:course_id/modules/:moduleId/lectures')
-    .post(verifyJWT, upload.single('videourl'),addLecture ) // Add a lecture to a module
+    .post(verifyJWT, requireCourseOwner('module'), upload.single('videourl'), addLecture) // Add a lecture to a module
     .get(verifyJWTCombined, getAllLectures); // Get all lectures for a module
 
 router.route('/:course_id/modules/:moduleId/lectures/:lecture_id')
     .get(verifyJWTCombined, getLectureById) // Get a specific lecture
-    .delete(verifyJWT, deleteLecture) // Delete a lecture
-    .put(verifyJWT,updateLecture)//update a lecture
+    .delete(verifyJWT, requireCourseOwner('lecture'), deleteLecture) // Delete a lecture
+    .put(verifyJWT, requireCourseOwner('lecture'), updateLecture) // update a lecture
 
 router.route('/:courseId/lectures/:lectureId/complete')
     .post(verifyJWTStudent, markLectureCompleted); // Mark lecture as completed

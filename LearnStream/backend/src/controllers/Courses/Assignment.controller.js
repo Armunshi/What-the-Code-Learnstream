@@ -1,5 +1,4 @@
 import { Assignments } from "../../models/assignment.model.js";
-import { Courses } from "../../models/course.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
@@ -7,19 +6,17 @@ import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary } from "../.
 import { Modules } from "../../models/module.model.js";
 import fs from "fs/promises";
 import { Progress } from "../../models/progress.model.js";
-import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const createAssignment = asyncHandler(async (req, res) => {
     const { title, deadline } = req.body;
-    const { course_id, moduleId } = req.params;
 
-    // ✅ Validate required fields
-    if (!course_id || !title || !moduleId) {
-        throw new ApiError(400, 'CourseId, Title, and ModuleId cannot be empty');
+    if (!title) {
+        throw new ApiError(400, 'Title cannot be empty');
     }
 
-    const ownerCourse = await Courses.findById(course_id);
-    assertCourseOwnership(ownerCourse, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('module').
+    const course = req.course;
+    const module = req.module;
 
     // ✅ Check for uploaded files
     const assignmentFiles = req.files?.assignmentFiles;
@@ -28,7 +25,7 @@ const createAssignment = asyncHandler(async (req, res) => {
     }
 
     // ✅ Check if an assignment already exists in the module
-    const existingAssignment = await Assignments.findOne({ course_id, module_id: moduleId, title });
+    const existingAssignment = await Assignments.findOne({ course_id: course._id, module_id: module._id, title });
     if (existingAssignment) {
         throw new ApiError(409, 'Assignment with the same title already exists for this module.');
     }
@@ -49,8 +46,8 @@ const createAssignment = asyncHandler(async (req, res) => {
     const parsedDeadline = deadline && !isNaN(new Date(deadline)) ? new Date(deadline) : null;
 
     const assignment = await Assignments.create({
-        course_id,
-        module_id: moduleId,
+        course_id: course._id,
+        module_id: module._id,
         title,
         public_id: public_ids,
         resourceTypes,
@@ -59,7 +56,7 @@ const createAssignment = asyncHandler(async (req, res) => {
     });
 
     const updatedModule = await Modules.findByIdAndUpdate(
-        moduleId,
+        module._id,
         { $push: { assignments: assignment._id } }, // Push assignment ID into the module
         { new: true }
     ).populate("assignments"); // ✅ Populate assignments to confirm the update
@@ -149,19 +146,11 @@ const getAssignmentById = asyncHandler(async (req, res)=>{
     )
 })
 const deleteAssignment = asyncHandler(async (req,res)=>{
-    const {moduleId,courseId,assignmentId} = req.params
-
-    const course = await  Courses.findById(courseId)
-    const assignment = await Assignments.findById(assignmentId)
-    const module = await Modules.findById(moduleId)
-
-    if (!assignment){
-        throw new ApiError(404,"Lecture Not Found")
-    }
-    if (!module){
-        throw new ApiError(404,"Lecture Not Found")
-    }
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('assignment'). Ownership
+    // used to be asserted against the URL's courseId while the delete targeted
+    // assignmentId, with nothing tying them together — the same cross-resource
+    // gap deleteLecture had.
+    const { course, module, assignment } = req;
 
     // forEach with an async callback ignores the returned promises — any
     // rejection became an unhandled promise rejection, which terminates the
@@ -186,32 +175,20 @@ const deleteAssignment = asyncHandler(async (req,res)=>{
     );
     await module.save();
     
-    await Assignments.findByIdAndDelete(assignmentId);
+    await Assignments.findByIdAndDelete(assignment._id);
     
     return res.status(200)
     .json(new ApiResponse(200,null,"Assignment deleted succesfully"))
 })
 const getStudentsAndUploadedAssignments = asyncHandler(async (req, res) => {
-    const { assignmentId } = req.params;
-
-    // Find the assignment by assignmentId
-    const assignment = await Assignments.findById(assignmentId)
-        .populate({
-            path: 'uploadedAssignments.studentId', // Populate student details
-            select: 'name email', // You can add other student fields as needed
-        });
-
-    // If the assignment doesn't exist, return an error
-    if (!assignment) {
-        res.status(404);
-        throw new ApiError( 404,'Assignment not found');
-    }
-
-    // Resolve the assignment's real course via its module — the route's
-    // `courseId` param is attacker-controlled and must not be trusted on its own.
-    const module = await Modules.findById(assignment.module_id);
-    const course = module ? await Courses.findById(module.course) : null;
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('assignment'), which walks
+    // assignment → module → course rather than trusting the URL's courseId —
+    // the §1.2 fix, now enforced at the route instead of in this handler. The
+    // guard does not populate, and the submitter names/emails below need it.
+    const assignment = await req.assignment.populate({
+        path: 'uploadedAssignments.studentId',
+        select: 'name email',
+    });
 
     // Send the response with assignment data and students who uploaded
     res.status(200).json(

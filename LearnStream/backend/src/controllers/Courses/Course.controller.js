@@ -6,7 +6,6 @@ import { uploadOnCloudinary } from "../../utils/cloudinary.js";
 import { UserStudent } from "../../models/user/userstudentmodel.js";
 import { Progress } from "../../models/progress.model.js";
 import { UserTeacher } from "../../models/user/userteachermodel.js";
-import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const createCourse = asyncHandler(async (req,res)=> {
     // thumbnail upload using multer and cloudinary
@@ -208,13 +207,13 @@ const checkEnrollment = asyncHandler(async(req,res)=>{
     
 })
 const getEnrolledStudents = asyncHandler(async (req,res)=>{
-    const {courseId} = req.params
-
-    const course = await Courses.findById(courseId).select('enrolledStudents author')
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('course'). Only the three
+    // fields the previous `.select()` returned are sent, so the response shape
+    // is unchanged — the guard hands over the whole document.
+    const { _id, author, enrolledStudents } = req.course;
 
     return res.status(200).json(
-        new ApiResponse(200,course,"Succesfully Sent Student Data")
+        new ApiResponse(200,{ _id, author, enrolledStudents },"Succesfully Sent Student Data")
     )
 })
 const CourseProgress = asyncHandler(async (req, res) => {

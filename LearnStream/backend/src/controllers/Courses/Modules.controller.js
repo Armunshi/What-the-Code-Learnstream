@@ -6,7 +6,6 @@ import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { deleteMediaFromCloudinary } from "../../utils/cloudinary.js";
 import { Modules } from "../../models/module.model.js";
-import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const addModule = asyncHandler(async (req, res) => {
     const { course_id } = req.params;
@@ -16,13 +15,14 @@ const addModule = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Course ID and Module title are required");
     }
 
-    const course = await Courses.findById(course_id);
-    assertCourseOwnership(course, req.teacher._id);
+    // req.course comes from requireCourseOwner('course') — already fetched and
+    // already checked, so there is nothing to re-resolve or re-authorize here.
+    const course = req.course;
 
     const newModule = await Modules.create({
         title,
         description,
-        course: course_id
+        course: course._id
     });
 
     course.modules.push(newModule._id);
@@ -31,16 +31,10 @@ const addModule = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, newModule, "Module added successfully"));
 });
 const updateModule = asyncHandler(async (req, res) => {
-    const { module_id } = req.params;
     const { title, description } = req.body;
 
-    const module = await Modules.findById(module_id);
-    if (!module) {
-        throw new ApiError(404, "Module not found");
-    }
-
-    const course = await Courses.findById(module.course);
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('module').
+    const module = req.module;
 
     if (title) module.title = title;
     if (description) module.description = description;
@@ -53,17 +47,10 @@ const updateModule = asyncHandler(async (req, res) => {
 });
 
 const deleteModule = asyncHandler(async (req, res) => {
-    const { module_id } = req.params;
-
-    const module = await Modules.findById(module_id)
-        .populate('lectures')
-        .populate('assignments');
-    if (!module) {
-        throw new ApiError(404, "Module not found");
-    }
-
-    const course = await Courses.findById(module.course);
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('module'); the guard does
+    // not populate, and the cascade below needs the child documents.
+    const course = req.course;
+    const module = await req.module.populate(['lectures', 'assignments']);
 
     // Explicit cascade delete — the schema's `pre('remove')` hooks never
     // fired (Mongoose 8 removed document `remove()` entirely) and left

@@ -16,6 +16,7 @@ import { verifyJWT } from "../../middleware/authteacher.middleware.js";
 import { upload } from "../../middleware/multer.middleware.js";
 import { verifyJWTStudent } from "../../middleware/authstudent.middleware.js";
 import { verifyJWTCombined } from "../../middleware/authcombined.middleware.js";
+import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
 import { addToCart, getCart, inCart, removeFromCart } from "../../controllers/Courses/cart.controller.js";
 const router = Router();
 
@@ -37,7 +38,7 @@ router.route('/').post(verifyJWT, upload.single('thumbnail'), createCourse);
 router.route('/:courseId/getTeacher').get(getCourseOwner);
 router.route('/:courseId/enrolled').get(verifyJWTCombined, checkEnrollment);
 router.route('/:courseId/progress').get(verifyJWTCombined, CourseProgress);
-router.route('/:courseId/students').get(verifyJWT, getEnrolledStudents);
+router.route('/:courseId/students').get(verifyJWT, requireCourseOwner('course'), getEnrolledStudents);
 router.route('/:courseId').get(getCourseById); // LAST
 
 

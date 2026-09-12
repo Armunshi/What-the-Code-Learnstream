@@ -6,19 +6,18 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { deleteMediaFromCloudinary, uploadOnCloudinary } from "../../utils/cloudinary.js";
 import { Progress } from "../../models/progress.model.js";
 import { Modules } from "../../models/module.model.js";
-import { assertCourseOwnership } from "../../utils/verifyOwnership.js";
 
 const addLecture = asyncHandler(async (req, res) => {
     const { title } = req.body;
-    const { moduleId, course_id } = req.params;
 
-    // Validate input
-    if (!title || !moduleId || !course_id) {
-        throw new ApiError(400, 'Missing required fields: title, moduleId, or course_id');
+    if (!title) {
+        throw new ApiError(400, 'Missing required field: title');
     }
 
-    const course = await Courses.findById(course_id);
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('module'). The course is
+    // the module's real parent, not whatever the URL claimed it was.
+    const course = req.course;
+    const module = req.module;
 
     const videoLocalPath = req.file?.path;
 
@@ -43,7 +42,7 @@ const addLecture = asyncHandler(async (req, res) => {
         duration: video_duration,
         public_id: video_public_id,
         resource_type: video.resource_type,
-        module_id: moduleId
+        module_id: module._id
     });
 
     if (!lecture) {
@@ -52,17 +51,15 @@ const addLecture = asyncHandler(async (req, res) => {
 
     // Update related course and module
     const updatedCourse = await Courses.findByIdAndUpdate(
-        course_id,
+        course._id,
         { $push: { lectures: lecture._id } },
         { new: true }
     );
     const updatedModule = await Modules.findByIdAndUpdate(
-        moduleId,
+        module._id,
         { $push: { lectures: lecture._id } },
         { new: true }
     );
-    console.log(updatedModule)
-    console.log(updatedCourse)
     if (!updatedCourse || !updatedModule) {
         throw new ApiError(404, 'Course/Module not found or failed to update');
     }
@@ -74,21 +71,13 @@ const addLecture = asyncHandler(async (req, res) => {
 
 
 const updateLecture = asyncHandler(async (req, res) => {
-    const { course_id, moduleId, lecture_id } = req.params;
     const { title, enableFreePreview } = req.body;
 
-    const module = await Modules.findById(moduleId);
-    if (!module) {
-        throw new ApiError(404, "Module not found");
-    }
-
-    const course = await Courses.findById(course_id);
-    assertCourseOwnership(course, req.teacher._id);
-
-    const lecture = await Lectures.findById(lecture_id);
-    if (!lecture) {
-        throw new ApiError(404, "Lecture not found");
-    }
+    // Resolved and authorized by requireCourseOwner('lecture') — the course
+    // checked is the one that actually owns this lecture, so a teacher can no
+    // longer edit another teacher's lecture by naming their own course in the
+    // URL.
+    const lecture = req.lecture;
 
     if (title) lecture.title = title;
     if (typeof enableFreePreview === "boolean") {
@@ -112,39 +101,23 @@ const updateLecture = asyncHandler(async (req, res) => {
     );
 });
 const deleteLecture = asyncHandler(async (req,res)=>{
-    // i will first recieve the lecture id to be deleted along with the courseid 
-    // then i will have to first delete the given lecture from cloudinary
-    // then first delete from course database lectures array
-    // then i will have to delete all the details of that lecture from my database
-
-    const {moduleId,course_id,lecture_id} = req.params
-
-
-    const course = await  Courses.findById(course_id)
-    const lecture = await Lectures.findById(lecture_id)
-    const module = await Modules.findById(moduleId)
-    if (!lecture){
-        throw new ApiError(404,"Lecture Not Found")
-    }
-    if (!module){
-        throw new ApiError(404,"Lecture Not Found")
-    }
-    assertCourseOwnership(course, req.teacher._id);
+    // Resolved and authorized by requireCourseOwner('lecture'). Previously
+    // ownership was asserted against the course_id in the URL while the delete
+    // targeted lecture_id, with nothing checking the two were related — any
+    // teacher who owned any course could delete any lecture, and its Cloudinary
+    // asset, by pairing their own course_id with someone else's lecture_id.
+    const { course, module, lecture } = req;
 
     await deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type);
 
-    //delete from courses array
-    course.lectures = course.lectures.filter(lectureId =>!lectureId
-        .equals(lecture_id))
+    course.lectures = course.lectures.filter((id) => !id.equals(lecture._id));
     await course.save();
-    
-    module.lectures = module.lectures.filter(
-        (id) => !id.equals(lecture._id)
-    );
+
+    module.lectures = module.lectures.filter((id) => !id.equals(lecture._id));
     await module.save();
-    
-    await Lectures.findByIdAndDelete(lecture_id);
-   
+
+    await Lectures.findByIdAndDelete(lecture._id);
+
     return res.status(200)
     .json(new ApiResponse(200,null,"Lecture deleted succesfully"))
 })
