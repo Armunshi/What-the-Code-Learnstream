@@ -188,9 +188,27 @@ assignment.public_id.forEach(async (id) => {
 
 `forEach` ignores the returned promises. The handler proceeds to delete the DB record and respond 200 while the Cloudinary calls are still in flight. Any rejection becomes an **unhandled promise rejection** — which on Node 15+ terminates the process by default.
 
+**Why the `await` inside the callback doesn't help.** This is the trap that makes the bug easy to miss in review: the code *reads* as though it waits. But `forEach` never looks at what its callback returns. Marking the callback `async` makes it return a promise, and `forEach` throws that promise on the floor. The `await` on line 185 suspends only that one callback invocation — it does not suspend `forEach`, and it does not suspend the handler. `forEach` hands back `undefined` the moment it has *started* every callback, not when they finish. (A `for (const id of assignment.public_id) { await … }` loop would have awaited correctly; so would collecting the promises and awaiting them together, which is what the fix does.)
+
+**Concrete walkthrough.** Say a teacher deletes an assignment with three uploaded PDFs, and Cloudinary happens to time out on the third:
+
+| time | what happens |
+|---|---|
+| `t=0ms` | `forEach` calls `deleteMediaFromCloudinary` three times in a row. Each fires an HTTP request to Cloudinary and immediately returns a pending promise. All three promises are discarded. `forEach` returns. |
+| `t=1ms` | The handler carries straight on — nothing has been awaited. Three requests are still in flight. |
+| `t=2ms` | `course.save()` and `module.save()` — the assignment's id is pulled out of both parent arrays. |
+| `t=5ms` | `Assignments.findByIdAndDelete(assignmentId)` — the assignment document is gone. **This document was the only record of those three `public_id`s.** |
+| `t=6ms` | `res.status(200).json(… "Assignment deleted succesfully")`. The teacher is told the delete worked. |
+| `t=400ms` | Cloudinary finally answers. Files 1 and 2 deleted fine. File 3 rejects. |
+| `t=400ms` | That rejection has no `.catch()` and nothing awaiting it. Node treats it as an unhandled rejection and, since v15, **exits the process** — killing every other request this server was handling at that moment, for a completely unrelated user. |
+
+Two distinct failures fall out of that timeline. The loud one is the crash at `t=400ms`: a single flaky third-party call takes down the API for everybody. The quiet one is at `t=5ms`: because the DB record is deleted before anyone knows whether the asset deletions succeeded, and that record held the only copy of the `public_id`s, a failed deletion leaves an asset in Cloudinary that **nothing in the system can still name**. It isn't recoverable by inspection — you'd have to diff the entire Cloudinary account against the database to find it. And because §2.4's `destroy()` silently no-ops on the wrong `resource_type` and *resolves successfully*, the common case wasn't even the loud one: deletions "succeeded", the record vanished, and the file quietly stayed public forever.
+
 So a Cloudinary hiccup during assignment deletion can take the whole API server down, and the assets are orphaned regardless (compounded by §2.4).
 
-**Fix**: `await Promise.allSettled(assignment.public_id.map(deleteMediaFromCloudinary))`, and log failures rather than throwing mid-delete.
+**Fix**: `await Promise.allSettled(assignment.public_id.map(deleteMediaFromCloudinary))`, and log failures rather than throwing mid-delete. `allSettled` waits for every call to finish and never rejects, so the handler can inspect each outcome and log the failures, then delete the DB record deliberately rather than racing it. Note the fix keeps the same *order* — assets first, then the database — but now the order is meaningful, because by the time the DB record is removed the asset outcomes are actually known and any failure has been written to the log with its `public_id` still in hand. A logged orphan is recoverable; the pre-fix silent one was not.
+
+**Fixed in Module B3** (2026-09-12) — see §10.2 for the current implementation and why `Promise.allSettled` is used instead of `Promise.all`, and §7's B3 checklist for the one-off script that swept up the orphans this bug had already created.
 
 ### 2.6 Submission lateness is decided by a client-supplied deadline [READ]
 
