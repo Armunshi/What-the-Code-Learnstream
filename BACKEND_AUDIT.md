@@ -447,8 +447,11 @@ point without pulling its id out of the courses it was enrolled in.
 The same shape as the §2.3 orphans B3 cleaned up, in a place that pass did not
 look. Harmless today (`populate` skips it, the enrollment check is an equality
 test that simply never matches) but it inflates any count taken from the array
-length. One `$pull` fixes it; worth folding into a general referential-integrity
-sweep rather than patching alone, since nothing prevents the next one.
+length.
+
+**Resolved 2026-09-12** — `$pull`ed; that course's `enrolledStudents` went from
+8 to 7. `scripts/check-user-invariants.js` now asserts the condition on every
+run, so the next one is caught rather than discovered.
 
 ---
 
@@ -710,6 +713,50 @@ Backend modules are numbered **B1–B6** so they don't collide with the existing
   Scripts are now `start: node src/index.js`, `dev: nodemon src/index.js`, `test: npm --prefix ../e2e test` — the Playwright suite is real and `exit 1` meant CI could never gate on it. `README.md` updated to point contributors at `npm run dev`, since `npm start` no longer watches files. The e2e suite spawns `node src/index.js` directly (`global-setup.ts:53`) and is unaffected.
 
 **Verification**: e2e suite 13 passed / 2 failed — identical to the B4 baseline, same two lecture-completion double-fire failures (frontend Module 5, unrelated). All 49 backend files pass `node --check`. Live dev backend smoke-checked after the edits: `/courses/getallCourses` 200, unauthenticated `/courses/:id/modules` still 401, `/courses/cart` still 401.
+
+### Post-B5 — keeping the user merge from breaking future work
+
+Added 2026-09-12 in response to the question "how do I ensure future code
+doesn't break because of the old student/teacher split?".
+
+**The code is clean.** A sweep across backend, frontend, e2e and scripts found
+zero live references to `UserStudent`, `UserTeacher`, `userstudentmodel`,
+`userteachermodel`, `verifyJWTStudent`, `verifyJWTTeacher` or
+`verifyJWTCombined`. The only surviving mentions are deliberate explanatory
+comments in `user.model.js` and `auth.js`, and prose in the audit documents.
+
+**The database was the real trap, and it is closed.** `userstudents` (53 docs)
+and `userteachers` (30 docs) were still sitting beside `users` (81) — superseded
+but indistinguishable from live data, so a future script, restored backup or
+new contributor would reasonably have written against them. Both are renamed to
+`zz_legacy_userstudents` / `zz_legacy_userteachers`: staleness is now obvious at
+a glance, no document was lost, and the rollback still works (rename back, drop
+`users`, drop the `users-to-single-collection` marker).
+
+**`scripts/check-user-invariants.js`** is the durable guard — read-only, exits
+non-zero, suitable for CI. It asserts the twelve conditions the rest of the
+backend now assumes: `users` exists and is non-empty, no legacy collection is
+live again, every user has a valid role / email / password, the unique email
+index is present, no duplicate or non-lowercase emails, every course author
+resolves to a *teacher*, and every `enrolledStudents` id and order `user_id`
+resolves to a real user. That last pair is what proves the preserved `_id`
+values still tie everything together — the single assumption the whole merge
+rests on. Currently: all twelve hold.
+
+**One frontend bug fixed, unrelated to the merge but easily mistaken for it.**
+`components/login-form.jsx` did `setAuth({ user_id, name, roles, accessToken })`
+— object shorthand storing the value under the key `roles`, while every consumer
+reads `auth.role` (`Pages/login.jsx` both guards on it and builds its redirect
+from it). So logging in through the dedicated student/teacher login pages left
+`auth.role` undefined. It predates all of B5, but the next person to hit it
+would have blamed the user-model merge.
+
+**Documentation is stale and was deliberately not rewritten.**
+`INTERVIEW_PREP_Learnstream.md`, `UI_AUDIT.md` and `REQUIREMENTS.md` all
+describe the two-model design and cite files that no longer exist
+(`models/user/userstudentmodel.js`, `UserTeacher.controller.js`, the three auth
+middlewares). `INTERVIEW_PREP_Learnstream.md` matters most — its ER diagram and
+schema walkthrough now describe a structure the code no longer has.
 
 ### Module B6 — Hardening & tests
 - [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).

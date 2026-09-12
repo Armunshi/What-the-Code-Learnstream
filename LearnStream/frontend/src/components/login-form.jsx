@@ -46,15 +46,14 @@ function Component({role}) {
             //console.log(JSON.stringify(response));
             const accessToken = response?.data?.data?.accessToken;
             const user_id = response?.data?.data?.user._id
-            const roles = response?.data?.data?.role;
+            const role = response?.data?.data?.role;
             const name = response?.data?.data?.user.name;
-            // localStorage.setItem('name',name);
-            // localStorage.setItem('accessToken',accessToken);
-            // localStorage.setItem('user_id',user_id);
-            // localStorage.setItem('role',roles)
-            setAuth({ user_id,name, roles, accessToken });
-            // localStorage.setItem('auth',JSON.stringify({ user_id,name, roles, accessToken }));
-            navigate(`/${roles}/${user_id}`);
+            // Key must be `role`: every consumer reads auth.role (Pages/login.jsx
+            // guards on it and builds its redirect from it). This used to be
+            // shorthand `roles`, which stored the value under the wrong key and
+            // left auth.role undefined after logging in through this form.
+            setAuth({ user_id, name, role, accessToken });
+            navigate(`/${role}/${user_id}`);
             console.log('Current COntext',auth);
             setUser('');
             setPwd('');
