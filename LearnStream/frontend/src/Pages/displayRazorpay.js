@@ -17,6 +17,12 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
     onSettled?.();
   };
 
+  const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
+  if (!razorpayKeyId) {
+    fail("Payment is not configured correctly. Please contact support.");
+    return;
+  }
+
   const res = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
   if (!res) {
     fail("Razorpay's checkout script failed to load. Check your internet connection and try again.");
@@ -80,7 +86,7 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
   }
 
   const options = {
-    key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_yLlU5Vi0wMY8hC",
+    key: razorpayKeyId,
     amount: order.amount,
     currency: order.currency,
     name: "LearnStream",
@@ -114,6 +120,11 @@ export const displayRazorpay = async ({ course_ids, token, setCartItems, student
     // both is defense-in-depth: onSettled is idempotent (setLoading(false)
     // twice is harmless), so there's no downside to both firing.
     razorpay.on("payment.failed", (response) => {
+      // Razorpay's documented failure payload: code, description, source,
+      // step, reason, and metadata (order_id/payment_id). Logged in full so a
+      // failure like a key_id/account mismatch shows up as something more
+      // specific than a generic alert.
+      console.error("Razorpay payment.failed", response?.error);
       fail(response?.error?.description || "Payment failed. Please try again.");
     });
     razorpay.open();
