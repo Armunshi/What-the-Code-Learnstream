@@ -1,7 +1,7 @@
 import {Router} from 'express'
 import { requireRole, verifyAuth } from "../../middleware/auth.js";
 import { ROLES } from "../../models/user.model.js";
-import { upload } from "../../middleware/multer.middleware.js";
+import { uploadVideo } from "../../middleware/multer.middleware.js";
 
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
 import { addModule, addModulesBulk, deleteModule, getCourseModules, getModuleById, updateModule } from '../../controllers/Courses/Modules.controller.js';
@@ -16,7 +16,7 @@ router.route('/:course_id/modules')
 // than upload.fields(): the number of lecture/assignment file fields varies
 // per submission, so a fixed field list can't be declared up front.
 router.route('/:course_id/modules/bulk')
-    .post(verifyAuth, requireRole(ROLES.TEACHER), requireCourseOwner('course'), upload.any(), addModulesBulk);
+    .post(verifyAuth, requireRole(ROLES.TEACHER), requireCourseOwner('course'), uploadVideo.any(), addModulesBulk);
 
 router.route('/:courseId/modules/:module_id')
     .get(verifyAuth, getModuleById) // Get a specific module

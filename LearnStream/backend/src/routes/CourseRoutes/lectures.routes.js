@@ -2,7 +2,7 @@ import {Router} from 'express'
 import { requireRole, verifyAuth } from "../../middleware/auth.js";
 import { ROLES } from "../../models/user.model.js";
 
-import { upload } from "../../middleware/multer.middleware.js";
+import { uploadVideo } from "../../middleware/multer.middleware.js";
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
 import { requireEnrollment } from "../../middleware/requireEnrollment.js";
 import { addLecture, deleteLecture, getAllLectures, getLectureById, getLecturesCompleted, markLectureCompleted, updateLecture } from '../../controllers/Courses/Lecture.controller.js';
@@ -13,7 +13,7 @@ const router = Router()
 // Lectures
 // Lectures
 router.route('/:course_id/modules/:moduleId/lectures')
-    .post(verifyAuth, requireRole(ROLES.TEACHER), requireCourseOwner('module'), upload.single('videourl'), addLecture) // Add a lecture to a module
+    .post(verifyAuth, requireRole(ROLES.TEACHER), requireCourseOwner('module'), uploadVideo.single('videourl'), addLecture) // Add a lecture to a module
     .get(verifyAuth, getAllLectures); // Get all lectures for a module
 
 router.route('/:course_id/modules/:moduleId/lectures/:lecture_id')

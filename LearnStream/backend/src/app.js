@@ -7,9 +7,16 @@ import express from "express"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import morgan from "morgan"
+import helmet from "helmet"
 import fs from "fs"
 import path from "path"
 const app = express()
+
+// crossOriginResourcePolicy defaults to "same-origin", which makes browsers
+// block a cross-origin fetch of this API's own responses regardless of the
+// CORS headers below — and this app is cross-site by construction (Vercel
+// frontend, Render backend), so that default would break every request.
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }))
 
 // Function format, not a format string: morgan renders an empty token as "-".
 const accessLog = (tokens, req, res) => {
@@ -56,7 +63,11 @@ app.use(cors({
 
 
 app.use(express.urlencoded({extended:true,limit:"16kb"}))
-app.use(express.static("public"))
+// No express.static("public") — that used to exist solely to serve
+// multer's temp upload directory, which made every in-flight upload publicly
+// downloadable, unauthenticated (BACKEND_AUDIT.md §2.10). Uploads now write
+// outside public/ entirely (see multer.middleware.js), so there is nothing
+// left in public/ that needs to be served.
 app.use(cookieParser())
 
 
