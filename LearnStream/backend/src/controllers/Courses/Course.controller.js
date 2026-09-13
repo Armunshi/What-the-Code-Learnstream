@@ -24,25 +24,25 @@ const createCourse = asyncHandler(async (req, res) => {
         thumbnailLocalPath,
     });
 
-    return res.status(200).json(new ApiResponse(200, course, "created course succesfully"));
+    return res.status(200).json(new ApiResponse(200, course, "created course successfully"));
 });
 
 const getCourseByStudentId = asyncHandler(async (req, res) => {
     const courses = await courseService.getCoursesForStudent(req.user._id);
 
-    return res.status(200).json(new ApiResponse(200, courses, "student courses succesfully sent "));
+    return res.status(200).json(new ApiResponse(200, courses, "student courses successfully sent "));
 });
 
 const getCourseByTeacherId = asyncHandler(async (req, res) => {
     const courses = await courseService.getCoursesForTeacher(req.user._id);
 
-    return res.status(200).json(new ApiResponse(200, courses, "teachercourses succesfully sent "));
+    return res.status(200).json(new ApiResponse(200, courses, "teachercourses successfully sent "));
 });
 
 const getCourseById = asyncHandler(async (req, res) => {
     const course = await courseService.getCourseById(req.params.courseId);
 
-    return res.status(200).json(new ApiResponse(200, course, "course sent succesfully"));
+    return res.status(200).json(new ApiResponse(200, course, "course sent successfully"));
 });
 
 const getCoursesByCategory = asyncHandler(async (req, res) => {
@@ -60,7 +60,7 @@ const getAllCourses = asyncHandler(async (req, res) => {
 
     const courses = await courseService.getAllCourses({ page, limit });
 
-    return res.status(200).json(new ApiResponse(200, courses, "Courses Fetched Succesfully"));
+    return res.status(200).json(new ApiResponse(200, courses, "Courses Fetched Successfully"));
 });
 
 const checkEnrollment = asyncHandler(async (req, res) => {
@@ -76,7 +76,7 @@ const getEnrolledStudents = asyncHandler(async (req, res) => {
     const { _id, author, enrolledStudents } = req.course;
 
     return res.status(200).json(
-        new ApiResponse(200, { _id, author, enrolledStudents }, "Succesfully Sent Student Data")
+        new ApiResponse(200, { _id, author, enrolledStudents }, "Successfully Sent Student Data")
     );
 });
 

@@ -68,7 +68,6 @@ const createOrder = asyncHandler(async (req, res) => {
   let order;
   try {
     order = await instance.orders.create(options);
-    console.log('Razorpay order created ⇒', order);
   } catch (err) {
     console.error('Razorpay error ⇒', err);
     throw new ApiError(

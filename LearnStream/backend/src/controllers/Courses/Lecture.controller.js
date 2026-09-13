@@ -37,7 +37,7 @@ const updateLecture = asyncHandler(async (req, res) => {
 const deleteLecture = asyncHandler(async (req, res) => {
     await lectureService.deleteLectureWithMedia(req.course, req.module, req.lecture);
 
-    return res.status(200).json(new ApiResponse(200, null, "Lecture deleted succesfully"));
+    return res.status(200).json(new ApiResponse(200, null, "Lecture deleted successfully"));
 });
 
 const getAllLectures = asyncHandler(async (req, res) => {

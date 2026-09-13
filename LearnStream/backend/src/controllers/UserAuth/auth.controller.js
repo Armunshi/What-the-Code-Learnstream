@@ -52,15 +52,15 @@ export const generateAccessAndRefreshTokens = async (userId) => {
     }
 };
 
-const respondWithSession = async (res, user, role, message) => {
+const respondWithSession = async (res, user, role, message, statusCode = 200) => {
     const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id);
     const safeUser = await User.findById(user._id).select("-password -refreshToken");
 
     return res
-        .status(200)
+        .status(statusCode)
         .cookie(`${role}AccessToken`, accessToken, cookieOptions)
         .cookie(`${role}RefreshToken`, refreshToken, cookieOptions)
-        .json(new ApiResponse(200, { user: safeUser, role, accessToken, refreshToken }, message));
+        .json(new ApiResponse(statusCode, { user: safeUser, role, accessToken, refreshToken }, message));
 };
 
 export const registerUser = (role) =>
@@ -82,7 +82,9 @@ export const registerUser = (role) =>
 
         const user = await User.create({ name, email, password, role });
 
-        return respondWithSession(res, user, role, "User Logged in Succesfully");
+        // 201, not 200 — this creates the account, it isn't a login
+        // (BACKEND_AUDIT.md §4.4 flagged both the status and the message).
+        return respondWithSession(res, user, role, "User registered successfully", 201);
     });
 
 export const loginUser = (role) =>
@@ -104,7 +106,7 @@ export const loginUser = (role) =>
             throw new ApiError(401, "Invalid User Credentials");
         }
 
-        return respondWithSession(res, user, role, "User Logged in Succesfully");
+        return respondWithSession(res, user, role, "User logged in successfully");
     });
 
 export const logoutUser = (role) =>
