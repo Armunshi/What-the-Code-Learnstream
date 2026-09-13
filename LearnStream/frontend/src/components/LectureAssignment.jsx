@@ -1,145 +1,231 @@
 import axios from "../api/axios";
 import React, { useState } from "react";
 import { useParams } from "react-router-dom";
+import { Plus, Trash2 } from "lucide-react";
+import FileDropzone from "./FileDropzone";
 
 function LectureAssignmentForm({ moduleId }) {
   const [lectures, setLectures] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const { course_id } = useParams();
+  const [submitting, setSubmitting] = useState(false);
+  const [bannerError, setBannerError] = useState("");
+  const [bannerSuccess, setBannerSuccess] = useState("");
 
   const handleAddLecture = () => {
-    setLectures([...lectures, { id: lectures.length + 1, title: "", file: null }]);
+    setLectures((prev) => [
+      ...prev,
+      { id: prev.length ? Math.max(...prev.map((l) => l.id)) + 1 : 1, title: "", file: null, status: "idle", progress: 0, error: "" },
+    ]);
   };
 
   const handleAddAssignment = () => {
-    setAssignments([...assignments, { id: assignments.length + 1, title: "", deadline: "", file: null }]);
+    setAssignments((prev) => [
+      ...prev,
+      { id: prev.length ? Math.max(...prev.map((a) => a.id)) + 1 : 1, title: "", deadline: "", file: null, status: "idle", progress: 0, error: "" },
+    ]);
   };
 
-  const handleInputChange = (id, type, field, value) => {
-    if (type === "lectures") {
-      setLectures(lectures.map((lecture) => (lecture.id === id ? { ...lecture, [field]: value } : lecture)));
-    } else {
-      setAssignments(assignments.map((assignment) => (assignment.id === id ? { ...assignment, [field]: value } : assignment)));
-    }
+  const patchLecture = (id, patch) => {
+    setLectures((prev) => prev.map((lecture) => (lecture.id === id ? { ...lecture, ...patch } : lecture)));
+  };
+
+  const patchAssignment = (id, patch) => {
+    setAssignments((prev) => prev.map((assignment) => (assignment.id === id ? { ...assignment, ...patch } : assignment)));
   };
 
   const handleDeleteLecture = (id) => {
-    setLectures(lectures.filter((lecture) => lecture.id !== id));
+    setLectures((prev) => prev.filter((lecture) => lecture.id !== id));
   };
 
   const handleDeleteAssignment = (id) => {
-    setAssignments(assignments.filter((assignment) => assignment.id !== id));
+    setAssignments((prev) => prev.filter((assignment) => assignment.id !== id));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+    setBannerError("");
+    setBannerSuccess("");
+
     if (!moduleId) {
-      alert("Module ID is missing!");
+      setBannerError("Module ID is missing!");
       return;
     }
 
+    setSubmitting(true);
     try {
-      // Submit Lectures
       for (const lecture of lectures) {
-        const formData = new FormData();
-        formData.append("title", lecture.title);
-        formData.append("videourl", lecture.file);
+        patchLecture(lecture.id, { status: "uploading", progress: 0, error: "" });
+        try {
+          const formData = new FormData();
+          formData.append("title", lecture.title);
+          formData.append("videourl", lecture.file);
 
-        await axios.post(
-          `/courses/${course_id}/modules/${moduleId}/lectures`,
-          formData,
-          { headers: { "Content-Type": "multipart/form-data" } }
-        );
+          await axios.post(
+            `/courses/${course_id}/modules/${moduleId}/lectures`,
+            formData,
+            {
+              headers: { "Content-Type": "multipart/form-data" },
+              onUploadProgress: (evt) => {
+                const pct = evt.total ? Math.round((evt.loaded * 100) / evt.total) : 0;
+                patchLecture(lecture.id, { progress: pct });
+              },
+            }
+          );
+          patchLecture(lecture.id, { status: "done", progress: 100 });
+        } catch (error) {
+          patchLecture(lecture.id, { status: "error", error: error.response?.data?.message || "Upload failed" });
+          throw error;
+        }
       }
 
-      // Submit Assignments
       for (const assignment of assignments) {
-        const formData = new FormData();
-        formData.append("title", assignment.title);
-        formData.append("deadline", assignment.deadline);
-        formData.append("assignmentFiles", assignment.file);
+        patchAssignment(assignment.id, { status: "uploading", progress: 0, error: "" });
+        try {
+          const formData = new FormData();
+          formData.append("title", assignment.title);
+          formData.append("deadline", assignment.deadline);
+          formData.append("assignmentFiles", assignment.file);
 
-       const response= await axios.post(
-          `/courses/${course_id}/modules/${moduleId}/assignments`,
-          formData,
-          { headers: { "Content-Type": "multipart/form-data" } }
-        );
-        console.log(response);
+          await axios.post(
+            `/courses/${course_id}/modules/${moduleId}/assignments`,
+            formData,
+            {
+              headers: { "Content-Type": "multipart/form-data" },
+              onUploadProgress: (evt) => {
+                const pct = evt.total ? Math.round((evt.loaded * 100) / evt.total) : 0;
+                patchAssignment(assignment.id, { progress: pct });
+              },
+            }
+          );
+          patchAssignment(assignment.id, { status: "done", progress: 100 });
+        } catch (error) {
+          patchAssignment(assignment.id, { status: "error", error: error.response?.data?.message || "Upload failed" });
+          throw error;
+        }
       }
 
-      alert("Lectures and Assignments submitted successfully!");
-      
-      // window.location.reload();
+      setBannerSuccess("Lectures and assignments submitted successfully!");
     } catch (error) {
       console.error("Error submitting lectures/assignments:", error);
-      alert(error.response?.data?.message || "Something went wrong");
+      setBannerError(error.response?.data?.message || "Something went wrong");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="w-full max-w-4xl bg-white shadow-md rounded-lg p-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Lecture & Assignment Form</h1>
-      <form onSubmit={handleSubmit}>
-        {/* Lectures Section */}
-        <div className="mb-6">
-          <h4 className="text-md font-semibold text-gray-600 mb-2">Lectures</h4>
+    <div>
+      {bannerError && (
+        <div className="mb-4 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <span>{bannerError}</span>
+          <button onClick={() => setBannerError("")} className="font-bold leading-none" aria-label="Dismiss">✕</button>
+        </div>
+      )}
+      {bannerSuccess && (
+        <div className="mb-4 flex items-start justify-between gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+          <span>{bannerSuccess}</span>
+          <button onClick={() => setBannerSuccess("")} className="font-bold leading-none" aria-label="Dismiss">✕</button>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-gray-600">Lectures</h4>
           {lectures.map((lecture) => (
-            <div key={lecture.id} className="mb-4">
-              <div className="flex items-center mb-2">
+            <div key={lecture.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={lecture.title}
-                  onChange={(e) => handleInputChange(lecture.id, "lectures", "title", e.target.value)}
-                  placeholder="Lecture Title"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => patchLecture(lecture.id, { title: e.target.value })}
+                  placeholder="Lecture title"
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <button type="button" onClick={() => handleDeleteLecture(lecture.id)} className="ml-2 text-red-500 hover:text-red-700">✖</button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteLecture(lecture.id)}
+                  className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                  aria-label="Delete lecture"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
-              <input
-                type="file"
-                onChange={(e) => handleInputChange(lecture.id, "lectures", "file", e.target.files[0])}
-                className="w-full mt-2 px-4 py-2 border border-gray-300 rounded-lg"
+              <FileDropzone
+                file={lecture.file}
+                accept="video/*"
+                hint="MP4, MOV, or WebM"
+                status={lecture.status}
+                progress={lecture.progress}
+                errorMessage={lecture.error}
+                onFileChange={(file) => patchLecture(lecture.id, { file })}
               />
             </div>
           ))}
-          <button type="button" onClick={handleAddLecture} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Add Lecture</button>
+          <button
+            type="button"
+            onClick={handleAddLecture}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            <Plus size={15} /> Add Lecture
+          </button>
         </div>
 
-        {/* Assignments Section */}
-        <div>
-          <h4 className="text-md font-semibold text-gray-600 mb-2">Assignments</h4>
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-gray-600">Assignments</h4>
           {assignments.map((assignment) => (
-            <div key={assignment.id} className="mb-4">
-              <div className="flex items-center mb-2">
+            <div key={assignment.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
                   value={assignment.title}
-                  onChange={(e) => handleInputChange(assignment.id, "assignments", "title", e.target.value)}
-                  placeholder="Assignment Title"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => patchAssignment(assignment.id, { title: e.target.value })}
+                  placeholder="Assignment title"
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <input
                   type="date"
                   value={assignment.deadline}
-                  onChange={(e) => handleInputChange(assignment.id, "assignments", "deadline", e.target.value)}
-                  className="ml-2 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => patchAssignment(assignment.id, { deadline: e.target.value })}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <button type="button" onClick={() => handleDeleteAssignment(assignment.id)} className="ml-2 text-red-500 hover:text-red-700">✖</button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteAssignment(assignment.id)}
+                  className="shrink-0 self-start rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 sm:self-center"
+                  aria-label="Delete assignment"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
-              <input
-                type="file"
-                onChange={(e) => handleInputChange(assignment.id, "assignments", "file", e.target.files[0])}
-                className="w-full mt-2 px-4 py-2 border border-gray-300 rounded-lg"
+              <FileDropzone
+                file={assignment.file}
+                accept=".pdf"
+                hint="PDF up to 10MB"
+                status={assignment.status}
+                progress={assignment.progress}
+                errorMessage={assignment.error}
+                onFileChange={(file) => patchAssignment(assignment.id, { file })}
               />
             </div>
           ))}
-          <button type="button" onClick={handleAddAssignment} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Add Assignment</button>
+          <button
+            type="button"
+            onClick={handleAddAssignment}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            <Plus size={15} /> Add Assignment
+          </button>
         </div>
 
-        {/* Submit Button */}
-        <div className="flex justify-end mt-6">
-          <button type="submit" className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">Submit</button>
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={submitting || (lectures.length === 0 && assignments.length === 0)}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? "Submitting…" : "Submit"}
+          </button>
         </div>
       </form>
     </div>

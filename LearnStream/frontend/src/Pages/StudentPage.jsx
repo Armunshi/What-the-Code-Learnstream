@@ -4,7 +4,6 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import axios from "../api/axios";
 
 import CourseComp from "../components/CourseComp";
-import { asyncHandler } from "../../../backend/src/utils/asyncHandler";
 import GeneralCourses from "../components/GeneralCourses";
 import { useContext } from "react";
 import AuthContext from "../contexts/AuthProvider";
@@ -47,8 +46,10 @@ const videos = [
       const fetchStudentCourses = async ()=>{
         try {
           const response =await axios.get(`courses/student/${user_id}`,{
-            headers: { 'Content-Type': 'application/json' },
-            Authorization: `Bearer ${auth?.accessToken}` ,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${auth?.accessToken}`,
+            },
             withCredentials: true ,
         })
           setStudentCourses(response.data.data.Courses);
@@ -67,7 +68,7 @@ const videos = [
         }
     }
     fetchStudentCourses();
-  },[auth?.accesstoken])  
+  },[auth?.accessToken])
   const navigate  = useNavigate();
   const viewCourse = (course_id)=>{
     navigate(`/user/${course_id}`)

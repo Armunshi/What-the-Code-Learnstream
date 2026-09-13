@@ -51,7 +51,7 @@ By integrating structured learning with interactive engagement, **LearnStream** 
    
 ## 🔗Links
 - [GitHub Repository](https://github.com/prajyot-codes/WhatheCode-LearnStream)
-- [Website Demo](https://learnstream.onrender.com/)
+- [Website Demo](https://learnstream-chi.vercel.app/)
 
 
 ## 🤖Tech-Stack
@@ -177,8 +177,10 @@ $ git clone https://github.com/prajyot-codes/WhatheCode-LearnStream
 ```bash
   $ cd Learnstream/backend
   $ npm install
-  $ npm start
+  $ npm run dev
 ```
+`npm run dev` runs the server under nodemon so it reloads on save. `npm start`
+runs plain `node` and is what production (Render) should use.
 
   
 ## 👨‍💻Team Members

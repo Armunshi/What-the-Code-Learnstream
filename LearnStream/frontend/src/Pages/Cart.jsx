@@ -4,9 +4,12 @@ import { useContext } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import AuthContext from '../contexts/AuthProvider';
 import { displayRazorpay } from "./displayRazorpay";
+import { formatINR } from '../utils/money';
 
 const Cart = () => {
   const [cartItems, setCartItems] = useState([]);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState(null);
   const {auth,setAuthContext} = useContext(AuthContext);
   const token = auth?.accessToken
   const navigate=useNavigate();
@@ -49,6 +52,8 @@ const Cart = () => {
      getCart();
   }, [token]);
 
+  // Summed in paise (integers) and formatted once at the end, so the total
+  // never accumulates floating-point error across items.
   const total = cartItems.length === 0 ? 0 : cartItems?.reduce((acc, item) => acc + item.price, 0);
 
   const course_ids = cartItems.map(course => course._id);
@@ -57,7 +62,7 @@ const Cart = () => {
   return (
     <>
       <h1 className="text-3xl font-bold my-6 text-center">🛒 Your Cart</h1>
-      <div className="flex flex-col md:flex-row gap-6 px-4 md:px-12">
+      <div className="max-w-container mx-auto flex flex-col md:flex-row gap-6 px-4 md:px-8">
 
         {/* Left Section - Cart Items */}
         <div className="flex-1 bg-white rounded-xl shadow p-4 space-y-4">
@@ -65,20 +70,19 @@ const Cart = () => {
             <p className="text-center text-gray-500">Your cart is empty.</p>
           ) : (
             cartItems.map((item) => (
-              <div key={item._id} className="flex gap-4 items-center border-b pb-4 "  >
+              <div key={item._id} className="grid grid-cols-[96px_1fr_auto] gap-4 items-center border-b pb-4">
                 <img
-                onClick={()=> navigate(`/user/${item._id}`)}
+                  onClick={()=> navigate(`/user/${item._id}`)}
                   src={item.thumbnail}
                   alt={item.title}
-                  
                   className="w-24 h-24 object-cover rounded-lg cursor-pointer"
                 />
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold">{item.title}</h2>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold truncate">{item.title}</h2>
                   <p className="text-sm text-gray-600">Category: {item.category}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-green-600 font-semibold text-lg">₹{item.price}</p>
+                  <p className="text-green-600 font-semibold text-lg">{formatINR(item.price)}</p>
                   <button
                     onClick={() => removeFromCart(item._id)}
                     className="text-red-600 mt-2 hover:underline text-sm"
@@ -94,7 +98,7 @@ const Cart = () => {
           {cartItems.length > 0 && (
             <div className="flex justify-between items-center pt-4 mt-4 border-t text-lg font-semibold">
               <span>Total Amount:</span>
-              <span className="text-green-600">₹{total}</span>
+              <span className="text-green-600">{formatINR(total)}</span>
             </div>
           )}
         </div>
@@ -108,16 +112,33 @@ const Cart = () => {
           </div>
           <div className="flex justify-between font-semibold">
             <span>Total:</span>
-            <span className="text-green-700">₹{total}</span>
+            <span className="text-green-700">{formatINR(total)}</span>
           </div>
+          {checkoutError && (
+            <div className="flex items-start justify-between gap-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+              <span>{checkoutError}</span>
+              <button onClick={() => setCheckoutError(null)} className="font-bold leading-none" aria-label="Dismiss">
+                ✕
+              </button>
+            </div>
+          )}
           <button
-            className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold"
-            disabled={cartItems.length === 0} onClick={() => {
-              console.log("🚀 setCartItems being passed to Razorpay:", setCartItems);
-              displayRazorpay({ course_ids, amount: total, token ,setCartItems})
-          }}
+            className="w-full mt-4 bg-brand-dark hover:bg-brand-dark/90 text-white py-2 px-4 rounded-lg font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={cartItems.length === 0 || checkoutLoading}
+            onClick={() => {
+              setCheckoutError(null);
+              setCheckoutLoading(true);
+              displayRazorpay({
+                course_ids,
+                token,
+                setCartItems,
+                studentName: auth?.name,
+                onSettled: () => setCheckoutLoading(false),
+                onError: setCheckoutError,
+              });
+            }}
           >
-            Proceed to Checkout
+            {checkoutLoading ? "Processing…" : "Proceed to Checkout"}
           </button>
         </div>
 

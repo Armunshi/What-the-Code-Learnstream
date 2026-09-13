@@ -125,15 +125,24 @@ const ViewStudentModules = () => {
   const loadModules = useCallback(async () => {
     if (!course_id || course_id === "modules") return;
     try {
+      // Backend requires auth here (verifyAuth) — must not rely on the
+      // cross-site cookie alone. It is a third-party cookie from the
+      // frontend's origin, which Chrome increasingly blocks by default;
+      // this was the cause of students getting silently signed out on this
+      // exact page. Sending the bearer token explicitly, the same way
+      // checkEnrolled already does, works regardless of cookie policy.
       const response = await axios.get(`/courses/${course_id}/modules`, {
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth?.accessToken}`,
+        },
         withCredentials: true,
       });
       setModules(response.data.data);
     } catch (error) {
       console.error("Error fetching modules:", error);
     }
-  }, [course_id]);
+  }, [course_id, auth?.accessToken]);
 
   const courseDetails = async () => {
     try {
@@ -150,7 +159,11 @@ const ViewStudentModules = () => {
 
   const courseProgressDetails = async () => {
     try {
+      // Same reasoning as loadModules above: this route requires auth, so
+      // don't depend on the cross-site cookie surviving Chrome's third-party
+      // cookie blocking — send the bearer token explicitly.
       const response = await axios.get(`/courses/${course_id}/progress`, {
+        headers: { Authorization: `Bearer ${auth?.accessToken}` },
         withCredentials: true,
       });
       const progress = response.data.data;
@@ -186,7 +199,7 @@ const ViewStudentModules = () => {
             <div className="flex gap-2 mt-2 flex-wrap">
               {/* <EnrollButton course_id={course_id}  /> */}
               <AddToCartBtn course_id={course_id} enrolled = {enrolled} />
-              <BuyCourseButton course_id={course_id} amount={course?.price} enrolled = {enrolled} />
+              <BuyCourseButton course_id={course_id} enrolled = {enrolled} />
             </div>
           )}
         </div>

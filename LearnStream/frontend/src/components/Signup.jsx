@@ -127,7 +127,24 @@ const Signup = ({ role, verb = "amazing" }) => {
           {errMsg}
         </p>
         <h2 className="text-xl font-bold mb-2">Welcome to LearnStream</h2>
-        <p className="mb-4">Register to start your {verb} journey</p>
+        <p className="mb-1">Register to start your {verb} journey</p>
+        <p className="mb-4 text-sm text-gray-600">
+          {role === "student" ? (
+            <>
+              Signing up to teach instead?{" "}
+              <Link to="/signup/teacher" className="text-cyan-600 hover:underline">
+                Sign up as a teacher
+              </Link>
+            </>
+          ) : (
+            <>
+              Signing up to learn instead?{" "}
+              <Link to="/signup/student" className="text-cyan-600 hover:underline">
+                Sign up as a student
+              </Link>
+            </>
+          )}
+        </p>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div>
             <Label htmlFor="username" value="Username" />

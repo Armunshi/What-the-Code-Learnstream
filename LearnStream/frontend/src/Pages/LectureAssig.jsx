@@ -26,7 +26,7 @@ const LectureAssig = () => {
     const fetchCompletedLectures = async () => {
       try {
         const response = await axios.get(`/courses/${course_id}/completed`);
-        const completedLectureIds = response.data.completedLectures.map(
+        const completedLectureIds = response.data.data.map(
           (lecture) => lecture.lectureId
         );
         const completedMap = completedLectureIds.reduce((acc, id) => {
@@ -79,9 +79,15 @@ const LectureAssig = () => {
   };
 
     return (
-      
-      <div className="flex flex-col md:flex-row">
-        <BackButton/> 
+      // BackButton used to be a direct child of the flex md:flex-row layout
+      // below, which made it its own flex column squeezed to the left of the
+      // content panels on desktop instead of sitting above them as a header —
+      // it belongs outside the row, not inside it.
+      <div>
+        <div className="p-4 pb-0">
+          <BackButton/>
+        </div>
+        <div className="flex flex-col md:flex-row">
         {/* Left Panel - Lecture & Assignment List */}
         <div className="bg-white border-t-2 md:border-t-0 md:border-r-2 border-black 
                 w-full md:w-1/4 p-5 text-black overflow-y-auto order-last md:order-first">
@@ -178,6 +184,7 @@ const LectureAssig = () => {
         {selectedDiv === "assignment" && (
           <YourWork assignmentId={currentAssignmentId} courseId={course_id} deadline={assignmentDeadline} />
         )}
+        </div>
       </div>
     );
   };

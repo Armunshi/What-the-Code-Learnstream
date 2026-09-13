@@ -1,40 +1,58 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import { Button, Modal, FileInput } from "flowbite-react";
 import axios from "../api/axios.js";
+import AuthContext from "../contexts/AuthProvider";
 
 const YourWork = ({ courseId, assignmentId, deadline }) => {
+  const { auth } = useContext(AuthContext);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploadedAssignmentUrls, setUploadedAssignmentUrls] = useState([]);
+  // Replaces alert() for every outcome below — a native popup blocks the
+  // whole page and needs a click to dismiss for something that isn't an
+  // error needing acknowledgement. Auto-clears itself instead.
+  const [status, setStatus] = useState(null); // { type: 'success' | 'error', text: string }
 
-  // Fetch uploaded assignments when component mounts
   useEffect(() => {
-    const fetchUploadedAssignments = async () => {
-      try {
-        const response = await axios.get(`/courses/${courseId}/assignments/${assignmentId}`, {
-          withCredentials: true,
-        });
-        const uploadedAssignments = response.data.data.uploadedAssignments;
-        const urls = uploadedAssignments.map((assignment) => assignment.submittedAssignmentUrls).flat();
-        setUploadedAssignmentUrls(urls);
-      } catch (error) {
-        console.error("Error fetching uploaded assignments:", error);
-      }
-    };
-  
-    fetchUploadedAssignments();
-  }, [courseId, assignmentId]);
-  
+    if (!status) return;
+    const timer = setTimeout(() => setStatus(null), 4000);
+    return () => clearTimeout(timer);
+  }, [status]);
 
-  // Handle file selection
+  // Requires auth (requireEnrollment('assignment')). Sending the bearer
+  // token explicitly, not relying on withCredentials alone — see
+  // BACKEND_AUDIT.md §3.16: the cross-site auth cookie is fragile in
+  // browsers that block third-party cookies, and this component never had
+  // the header fallback ViewStudentModule.jsx's calls do.
+  const authHeader = { Authorization: `Bearer ${auth?.accessToken}` };
+
+  // Shared by the mount-time fetch and the post-upload refresh, so both read
+  // the submission list the same way. This used to be two different, and
+  // differently-broken, code paths (see below).
+  const fetchUploadedAssignments = useCallback(async () => {
+    try {
+      const response = await axios.get(`/courses/${courseId}/assignments/${assignmentId}`, {
+        headers: authHeader,
+        withCredentials: true,
+      });
+      const uploaded = response.data.data.uploadedAssignments;
+      setUploadedAssignmentUrls(uploaded.map((a) => a.submittedAssignmentUrls).flat());
+    } catch (error) {
+      console.error("Error fetching uploaded assignments:", error);
+    }
+  }, [courseId, assignmentId, auth?.accessToken]);
+
+  useEffect(() => {
+    fetchUploadedAssignments();
+  }, [fetchUploadedAssignments]);
+
   const handleFileChange = (event) => {
     setSelectedFiles([...event.target.files]);
   };
 
-  // Handle file upload
   const handleUpload = async () => {
     if (selectedFiles.length === 0) {
-      alert("Please select at least one file to upload!");
+      setStatus({ type: "error", text: "Please select at least one file to upload." });
       return;
     }
 
@@ -46,43 +64,61 @@ const YourWork = ({ courseId, assignmentId, deadline }) => {
 
     try {
       await axios.post(`/courses/${courseId}/assignments/${assignmentId}/upload`, formData, {
-        withCredentials: true
+        headers: authHeader,
+        withCredentials: true,
       });
-      alert("Files uploaded successfully!");
+      setStatus({ type: "success", text: "Files uploaded successfully." });
       setSelectedFiles([]);
       setIsModalOpen(false);
 
-      // Refresh uploaded assignments list
-      const response = await axios.get(`/courses/${courseId}/assignments/${assignmentId}/submissions`);
-      setUploadedAssignmentUrls(response.data);
+      // Was GET .../submissions — no backend route defines that path (the
+      // real one is singular, no suffix: BACKEND_AUDIT.md §3.14). That 404
+      // was silently swallowed by the catch block below, after the success
+      // message had already shown, so the list never actually refreshed
+      // with the file that was just uploaded. Reusing the same fetch the
+      // mount effect uses fixes both the route and the response shape
+      // (this used to pass the raw axios response object straight into
+      // state instead of response.data.data).
+      await fetchUploadedAssignments();
     } catch (error) {
       console.error("Error uploading files:", error);
-      // alert("Failed to upload files.");
+      setStatus({ type: "error", text: "Failed to upload files." });
     }
   };
 
-  // Handle marking lecture as done
-  const markAsDone = async (assignmentId) => {
+  const markAsDone = async () => {
     try {
-      const response = await axios.post(`/courses/${courseId}/assignments/${assignmentId}/complete`, {},{
-        withCredentials: true
-      });
-      
-      // Refresh uploaded assignments list
-      if (response.data.data == true){
-        alert("Marked as done!");
+      const response = await axios.post(
+        `/courses/${courseId}/assignments/${assignmentId}/complete`,
+        {},
+        { headers: authHeader, withCredentials: true }
+      );
 
+      if (response.data.data === true) {
+        setStatus({ type: "success", text: "Marked as done!" });
       }
-      // setUploadedAssignmentUrls(response.data.data);
     } catch (error) {
       console.error("Error marking as done:", error);
-      alert("Failed to mark as done.");
+      setStatus({ type: "error", text: "Failed to mark as done." });
     }
   };
 
   return (
     <div className="bg-white p-4 rounded-lg shadow-md gap-4 text-center">
       <h3 className="text-lg font-semibold mb-4">Your Work</h3>
+
+      {status && (
+        <p
+          className={`mb-3 text-sm rounded-md py-2 px-3 ${
+            status.type === "success"
+              ? "bg-green-50 text-green-700"
+              : "bg-red-50 text-red-700"
+          }`}
+          role="status"
+        >
+          {status.text}
+        </p>
+      )}
 
       {/* Display uploaded assignments */}
       {uploadedAssignmentUrls?.length > 0 && (
@@ -94,7 +130,7 @@ const YourWork = ({ courseId, assignmentId, deadline }) => {
                 <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500">
                   Assignment {index + 1}
                 </a>
-                
+
               </li>
             ))}
           </ul>
@@ -102,12 +138,12 @@ const YourWork = ({ courseId, assignmentId, deadline }) => {
       )}
 
       {/* Add Files Button */}
-      <Button onClick={() => setIsModalOpen(true)} color="blue" size="lg" 
+      <Button onClick={() => setIsModalOpen(true)} color="blue" size="lg"
         className="mb-3">
         Add Files
       </Button>
 
-      <Button color="green" size="lg" onClick={() => markAsDone(assignmentId)}>
+      <Button color="green" size="lg" onClick={markAsDone}>
                   Mark as Done
       </Button>
       {/* Modal for File Upload */}

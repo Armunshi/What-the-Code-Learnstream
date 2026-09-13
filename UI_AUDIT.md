@@ -1,0 +1,376 @@
+# LearnStream — UI/UX & Frontend Architecture Audit
+
+Date: 2026-09-10
+Scope: `LearnStream/frontend` (React 18 + Vite + Tailwind), cross-checked against `LearnStream/backend` for the auth-related bugs.
+Companion doc: `BACKEND_AUDIT.md` — a full backend audit (2026-09-11) covering everything this one does not.
+
+This audit is based on reading the actual source, not just the deployed site. Every finding below cites the file and line it was found in.
+
+**Read this alongside `BACKEND_AUDIT.md`.** Several symptoms logged here have backend root causes that no frontend change can fix — most importantly, the recurring "generic/silent error message" complaints: `backend/src/app.js` registers **no error-handling middleware**, so every error reaches the client as HTML with a stack trace and `err.response?.data?.message` is always `undefined` (`BACKEND_AUDIT.md` §2.1). That backend audit also found live P0 issues outside this document's scope, including a verified unauthenticated bypass of paid course content.
+
+---
+
+## 1. Component library situation — why the UI feels inconsistent
+
+`frontend/package.json` currently pulls in **three separate UI kits at once**, plus one icon set:
+
+| Package | Used for | Status |
+|---|---|---|
+| `flowbite-react` (^0.10.2) | Navbar, Dropdown, Avatar, TextInput, Spinner | Actively used (`Navbar1.jsx`, `login.jsx`) |
+| `mdb-react-ui-kit` (^9.0.0) | — | In `package.json`, not found used in any current page |
+| `@mui/icons-material` (^7.1.2) | — | In `package.json`, not found used in any current page |
+| `lucide-react` (^0.474.0) | Cart/shopping icons | Actively used (`Navbar1.jsx`) |
+| Hand-rolled Tailwind divs | Cart, Home, Footer, course cards | Actively used |
+
+Three design languages (Flowbite's rounded/blue defaults, MDB's Bootstrap-like defaults, and raw Tailwind) fighting for the same page is the direct cause of the alignment/spacing inconsistency you're seeing in the navbar and cart — each component brings its own default padding, font-weight, and breakpoint behavior, and nothing enforces a shared spacing/type scale across them.
+
+**Recommendation:** consolidate on **one** system instead of hand-building every component from scratch. See `REQUIREMENTS.md` §2 for the specific recommendation and migration plan.
+
+---
+
+## 2. Confirmed functional bugs (not just visual)
+
+### 2.1 "Shows unauthorised after signing in" — root cause found
+
+`frontend/src/Pages/StudentPage.jsx:49-53` (the page that renders a logged-in student's own dashboard / courses at `/student/:user_id`):
+
+```js
+const response = await axios.get(`courses/student/${user_id}`, {
+  headers: { 'Content-Type': 'application/json' },
+  Authorization: `Bearer ${auth?.accessToken}`,   // ❌ sibling of `headers`, not inside it
+  withCredentials: true,
+})
+```
+
+`Authorization` is written as a **top-level key of the axios config object**, not inside `headers`. Axios ignores unrecognized top-level keys, so the bearer token is never actually sent. The request falls back entirely to the `studentAccessToken` cookie.
+
+That cookie is set as `sameSite: "none"; secure: true` (`backend/src/controllers/UserAuth/UserStudent.controller.js:14-16`) because frontend and backend are deployed on **different domains** (Vercel-style frontend + Render-style backend). Cross-site cookies with `SameSite=None` are exactly the kind of cookie that Chrome/Safari increasingly block or partition by default in production, even though they work fine on `localhost` where both apps share an origin during dev. So in production you get a double failure: the bearer token is silently dropped by the bug above, *and* the cookie fallback is unreliable cross-site → the backend's `verifyJWTStudent` middleware (`backend/src/middleware/authstudent.middleware.js:8`) finds no usable token and returns `401 Unauthorized` — even though the user is genuinely logged in.
+
+This single bug explains the exact symptom described: login succeeds, but the student's own courses page reports unauthorized.
+
+Compare with every other page that attaches this header correctly, e.g. `Cart.jsx:15-19`, `EnrollButton.jsx:14-17`, `AddToCartBtn.jsx:16-19` — all of these put `Authorization` correctly inside `headers`. `StudentPage.jsx` is the one outlier.
+
+Also in the same file: `StudentPage.jsx:7` imports directly from `../../../backend/src/utils/asyncHandler` — a **backend source file imported into frontend code**. This is dead/unused in that file but will break a production bundle if Vite ever tries to resolve it strictly, and is a sign the file was copy-pasted from a backend controller during development and never cleaned up.
+
+### 2.2 No visible signup entry point in the UI
+
+`frontend/src/components/Navbar1.jsx:93-101` — the navbar's only links are `Home`, `About`, `Services`, `Pricing`, `Contact`. There is **no Login or Sign Up link anywhere in the navbar**, logged in or out.
+
+The *only* path into `/login` (and from there to `/signup/student` / `/signup/teacher`, which do exist and do work — see `Pages/login.jsx:72,121`) is the "Get Started" button in the hero section (`Pages/Home.jsx:36-41`). If that hero section fails to render properly (see §2.3), there is no way for a new visitor to find signup at all — which matches what you're seeing on the deployed site.
+
+### 2.3 Hero section is fragile
+
+`Pages/Home.jsx:22-24`:
+```jsx
+<section className="relative bg-[url('/assets/HeroImg.png')] bg-cover bg-center bg-no-repeat"
+  style={{ height: "90vh", width: "100%" }}>
+```
+- The background image is referenced by absolute public path `/assets/HeroImg.png`. If that file isn't actually present in `frontend/public/assets/`, or the deployed build doesn't include it, the section renders as a plain black-gradient box with no image — visually broken but structurally still there (which matches "hero image section is not made properly").
+- Fixed `height: "90vh"` combined with `bg-cover` means on very short/very tall viewports content can be cropped or leave large empty space; there's no `min-height` fallback.
+- The "Learn More" CTA (`Home.jsx:43-48`) is `href="#"` — a dead link.
+- Text uses a typo'd Tailwind class `sm:text-17xl` (`Home.jsx:28`) — not a real Tailwind size, so it silently does nothing and the heading never scales up on larger screens the way it was clearly intended to.
+
+### 2.4 Broken/dead navbar and footer routes
+
+None of `/about`, `/services`, `/pricing`, `/contact` exist as routes in `frontend/src/main.jsx:24-46` → clicking any of them from the navbar 404s. `Footer.jsx:28` also links to `/about`, same problem.
+
+### 2.5 Navbar re-renders on full page reload for some links
+
+`Navbar1.jsx` uses Flowbite's `Navbar.Link` with plain `href="/about"` etc. (not React Router `Link`/`NavLink`). On a React Router app this forces a full browser navigation/reload instead of client-side routing — breaks the SPA experience and will briefly flash a blank page each time (and would defeat in-memory auth state, since `auth` lives only in React context — see §2.6).
+
+### 2.6 Auth token is memory-only; refresh depends on a cookie that may be blocked
+
+`AuthProvider.jsx:8,18` stores `auth` in a plain `useState` with no persistence. On every hard reload it calls `fetchNewAccessToken()` (`api/auth.js:6`), which depends entirely on the `studentRefreshToken`/`teacherRefreshToken` cross-site cookie. If that cookie is blocked/partitioned (same class of issue as §2.1), the user appears logged out on every refresh even though they logged in seconds ago — and any full navigation (§2.5) triggers exactly this reload.
+
+There is also no axios response interceptor to catch a `401` and transparently retry with a refreshed token (`api/axios.js:11-28` — the interceptor code is present but **entirely commented out**). Every page currently does its own manual try/catch around 401s instead.
+
+### 2.7 Dead code left in the repo
+
+- `frontend/src/App.jsx` is **not the real entry point** (`main.jsx` is — it builds its own router directly with `createBrowserRouter`) and is broken on its own terms: it uses `<Router>`, `<Routes>`, `<Route>` without importing any of them from `react-router-dom`, and imports from paths that don't exist (`./flowbite-componets/Navbar1`, `'/pages/Student '` with a trailing space). Safe to delete.
+- **Correction (this bullet originally claimed `components/login-form.jsx` and `components/Signup.jsx` were unused — that was wrong, caught during manual testing in §10.1):** `components/Signup.jsx` is **live** — it's the shared form rendered by both `Pages/Signup-students.jsx` (`role="student"`) and `Pages/Signup-Teacher.jsx` (`role="teacher"`), which are the actual `/signup/student` and `/signup/teacher` routes in `main.jsx`. `components/login-form.jsx` is also imported (by `Pages/Login-students.jsx`/`Pages/Login-teacher.jsx`, themselves still registered as routes) — "dead" was too strong; §8.6's more careful framing (reachable by direct URL but not linked from any live page) is the accurate one for those two Login-* pages specifically. Neither `Signup.jsx` nor `login-form.jsx` should be deleted.
+- `mdb-react-ui-kit` and `@mui/icons-material` in `package.json` — no current usage found; remove unless something depends on them.
+
+---
+
+## 3. Layout/alignment problems
+
+### 3.1 Navbar (`Navbar1.jsx`)
+- Cart icon (`ShoppingCart` from lucide, `Navbar1.jsx:81-85`) is rendered as a bare clickable icon with no button wrapper, no padding/hit-area, no hover state, and no item-count badge — it sits inline next to the avatar dropdown with inconsistent vertical alignment because the two come from different component systems (Flowbite `Avatar`/`Dropdown` vs. a raw `lucide-react` icon).
+- The `<div className="flex md:order-2">` wrapping the dropdown + cart has no `items-center` or `gap`, so vertical centering and spacing between the avatar and cart icon is left to accident rather than being explicit.
+
+### 3.2 Cart page (`Pages/Cart.jsx`)
+- Overall two-column layout (`flex flex-col md:flex-row gap-6`, `Cart.jsx:60`) is reasonable, but individual line items (`Cart.jsx:68-89`) don't set a fixed image-column width against the text column reliably across breakpoints — on narrow-but-not-mobile widths the thumbnail, title block, and price/remove block can wrap unevenly since only the outer row is `flex`, not a defined grid with fixed track sizes.
+- No loading state and no empty-cart illustration — just a text line — and no quantity concept (fine for a course cart, but "Order Summary" duplicates totals already shown at the bottom of the item list with no visual hierarchy distinguishing the two).
+
+### 3.3 General
+- Spacing scale is inconsistent across pages — some use Tailwind's default scale (`gap-4`, `gap-6`), Flowbite components bring their own internal padding that doesn't match, and there is no shared `container`/max-width convention (`Home.jsx` uses `max-w-screen-xl`, `Footer.jsx` also uses `max-w-screen-xl`, `Cart.jsx` uses raw `px-4 md:px-12` with no max-width at all — so cart content stretches edge-to-edge on wide screens while everything else is capped).
+
+---
+
+## 4. Missing pages (as requested)
+
+| Page | Current state |
+|---|---|
+| Sign up | Exists (`/signup/student`, `/signup/teacher`) but unreachable from navbar — see §2.2 |
+| Profile | Does not exist at all — no route, no component |
+| About | Linked from navbar/footer, route doesn't exist → 404 |
+| Services | Linked from navbar, route doesn't exist → 404 |
+| Pricing | Linked from navbar, route doesn't exist → 404 |
+| Contact | Linked from navbar, route doesn't exist → 404 |
+
+## 5. Missing landing-page content
+
+- No total course count / "N+ courses" style stat anywhere on the landing page. `GeneralCourses.jsx:26` already fetches a `courses` array per-category — the count is derivable client-side today, but a proper landing-page-wide total (across all categories) needs either the existing `/courses/getallCourses` endpoint or a dedicated lightweight count endpoint (see `REQUIREMENTS.md` §5).
+
+---
+
+## 6. Course detail page, video player, progress tracking, and teacher review flow
+
+Reviewed against the actual code: `components/CourseComp.jsx`, `Pages/ViewStudentModule.jsx`, `Pages/LectureAssig.jsx`, `components/YourWork.jsx`, `Pages/UploadedAssignment.jsx`, `Pages/ViewtheModules.jsx`, `components/LectureAssignment.jsx`, and the backend controllers `Lecture.controller.js`, `Assignment.controller.js`, `Course.controller.js`.
+
+### 6.1 Course detail page ("lorem ipsum" / fake-looking content)
+- **Star ratings are hardcoded**, not real data: `CourseComp.jsx:27-70` renders exactly 5 gold stars and a `5.0` badge for **every course, unconditionally** — there is no `Review`/`Rating` model anywhere in the backend. Every course looks like a perfect 5-star course because the number is literally hardcoded, not because reviews were seeded.
+- Whatever description text you're seeing on a course detail page (`ViewStudentModule.jsx:203`, `<p>{course.description}</p>`) is rendered as-is from whatever was typed into the free-text `Textarea` on course creation (`MakeaCourse.jsx:109-117`) — if it reads as lorem ipsum in production, that's seed/test data sitting in the database, not a rendering bug. Worth auditing existing course documents and adding a min-length / placeholder-text check on the create-course form so this can't happen again.
+- No syllabus/"what you'll learn" summary before purchase — a buyer has to expand every module accordion row individually to see what's inside a course.
+
+### 6.2 Lecture video player & layout (`Pages/LectureAssig.jsx`)
+- Once you click into a module, its lecture/assignment grouping is lost — `LectureAssig.jsx` receives one module's `lectures` and `assignments` as two flat arrays via router `state` and renders them as two flat lists titled just "Lectures and Assignments" (lines 88-133), with no module heading, numbering, or total-duration summary.
+- No auto-selection of the first/next incomplete lecture — the video panel shows an empty "Select a lecture to play..." placeholder on first load (line 149-151).
+- `ReactPlayer` (lines 140-147) only sets `url`, `controls`, `width`, `height` — no `onProgress`, `onEnded`, `onError`, or `light` (poster thumbnail) prop. No resume-from-last-position, no visible error state if a Cloudinary URL is bad, no thumbnail before pressing play.
+- Assignment attachments are labeled generically "Assignment 1", "Assignment 2" (line 162) by array index instead of each file's actual filename — unhelpful once a module has more than one attachment.
+
+### 6.3 "90%-completion" check does not exist — completion is really "was opened once"
+This is the most significant functional gap, and it's the literal answer to "how does the course/video completion check itself on 90%":
+- A lecture is marked complete the instant its card is **clicked** (`LectureAssig.jsx:48-67`, the POST to `/complete` fires in `handleSelectLecture`, before any video plays), not based on how much of the video was watched.
+- `ReactPlayer` has no `onProgress` handler wired up anywhere in the component, so the frontend never even measures watch percentage in the first place — there is no 90% (or any %) threshold implemented. The checkbox next to each lecture (line 101-108) reflects "was opened," not "was watched."
+- Server-side, `Course.controller.js:292` computes `progressPercentage` purely from `completedLectureCount / totalLectures` — `totalAssignments`/`completedAssignmentsCount` are fetched and returned to the frontend (`ViewStudentModule.jsx:158-161`) but never folded into the percentage, so a student can show 100% course progress after opening every video once, having submitted zero assignments.
+- `YourWork.jsx:65-81` (`markAsDone`) lets a student mark an **assignment** complete with one click, with no server-side check that they ever actually uploaded a submission first (`markAssignmentCompleted` in `Assignment.controller.js:242-277` doesn't verify `uploadedAssignments` contains an entry for that student).
+
+### 6.4 Assignment upload — a real security/privacy bug, plus UX gaps
+- **Security bug**: `getAssignmentById` (`Assignment.controller.js:158-172`, `GET /courses/:courseId/assignments/:assignmentId`, guarded only by `verifyJWTStudent` — i.e. any logged-in student) selects the assignment with `.select('-module_id -assignmentUrls')`. It does **not** exclude `uploadedAssignments`, so the response contains **every student's submitted file URLs** for that assignment, not just the requester's own. `YourWork.jsx:14-19` calls this exact endpoint to populate "Your Work" — meaning the data underlying that screen already includes classmates' submissions; any student who inspects the network response (or a future UI change that displays more of it) can see and open other students' submitted files. This needs a backend fix: filter `uploadedAssignments` down to the requesting student's own entries (`req.student._id`) before responding.
+- `YourWork.jsx:56` refetches from `GET /courses/${courseId}/assignments/${assignmentId}/submissions` right after a successful upload — **this route doesn't exist** in `assignments.routes.js`. The request 404s and is silently swallowed, so the "Uploaded Assignments" list never actually refreshes after upload; the student has to manually reload the page to see their own file appear.
+- No upload progress indicator — `handleUpload` (`YourWork.jsx:35-62`) just awaits the whole POST with no percentage/progress bar, then a plain `alert()`.
+- No deadline enforcement in the UI: the backend already computes `submittedOnTime` (`Assignment.controller.js:129`), but nothing in `YourWork.jsx` ever disables the upload button or shows "late"/"on time" once the deadline has passed.
+
+### 6.5 Teacher review flow
+- The teacher's submission-review page (`Pages/UploadedAssignment.jsx`) is view/download only — `handleDownload` (lines 11-19) opens every submitted file in its own new browser tab, which triggers popup-blocker warnings once a student submits more than 2-3 files, instead of a zip download or inline preview.
+- **There is no grading or feedback mechanism anywhere** — the `uploadedAssignments` subdocument (backend model) has no `grade`, `feedback`, or `status` field, and no UI exists to set one. A teacher can look at a submission but has no way to respond to it (approve, request resubmission, leave a comment, assign a grade).
+- **Confirmed dead button**: in `Pages/ViewtheModules.jsx`, the inner `ModuleDropdown` component declares `let owner_id` (line 26) but never assigns to it — only `setOwnerId(...)` (state) is ever called. The "Add lecture-assignment" button's visibility check at line 174 is `user_id==owner_id`, comparing against a variable that is `undefined` forever. **This button never renders for anyone, including the real course owner.** (Content can still be added via the separate `/teacher/:user_id/makecourse` flow, but this in-page entry point is silently broken.)
+- The same "who owns this course" check (`GET /courses/:id/getTeacher`) is independently fetched twice on the same page — once in `ViewtheModules` itself (lines 197-212) and once again, verbatim, inside every `ModuleDropdown` instance it renders (lines 27-42) — duplicated code and a duplicated network call per module on the page.
+- `ViewtheModules.jsx:9-10` imports React components (`CustomLogo`, `AssignmentIcon`) directly from the `public/` folder (`../../public/assets/lectureLogo`, `../../public/assets/assignmentsvg`). Vite's `public/` directory serves files as static assets, not as importable modules — this is unsupported and likely why these icons don't render reliably.
+- `deletelecture` (`ViewtheModules.jsx:261`) does a full `window.location.reload()` after deleting, while the near-identical `deleteAssignment` right next to it correctly updates local state with no reload — inconsistent behavior between two copies of essentially the same action.
+- The lecture/assignment upload form used by teachers (`components/LectureAssignment.jsx`) sends its POST requests with only `Content-Type: multipart/form-data` and **no `Authorization` header at all** (lines 49-53, 63-67) — it relies entirely on the same fragile cross-site cookie described in §2.1/§2.6. It also uploads every lecture video and every assignment file **sequentially, one `await` at a time in a `for` loop** (lines 44-69), with no per-file progress indicator — for a module with several videos this is a long silent wait ending in a single `alert()`, and a failure partway through leaves the already-uploaded files orphaned with no rollback or retry.
+
+---
+
+## 7. Payment, checkout, and financial integrity
+
+Reviewed: `Pages/displayRazorpay.js`, `Pages/Payment.jsx`, `components/Checkout.jsx`, and the backend `controllers/Payment.controller.js`, `routes/payment.routes.js`, `controllers/Courses/cart.controller.js`, `models/cart.model.js`, `models/Orders.js`.
+
+### 7.1 Payment amount is not validated server-side (security/financial bug)
+`Payment.controller.js:15-58` (`createOrder`) takes `amount` directly from `req.body` (line 18, `parseInt`'d at line 25, converted to paise at line 26) and creates the Razorpay order with it — there is no lookup of the real price of `course_ids` from the `Courses` collection to cross-check. `verifyPayment` (lines 61-98) only verifies the Razorpay HMAC signature (lines 72-80); it never re-derives what the correct amount should have been. A tampered request (edited client state, or a raw API call bypassing the UI) can request a Razorpay order for an artificially low amount, complete a legitimately-signed payment for that amount, and have the backend accept it — Razorpay's signature only proves "this amount was actually paid," not "this is the right amount for these courses." Fix: compute `amount` server-side from the `Courses` documents for `course_ids` instead of trusting the client-sent value.
+
+### 7.2 Enrollment is not atomic with payment — "paid but not enrolled" is possible
+`verifyPayment` (`Payment.controller.js:82-97`) only flips the `Order.status` to `"paid"` — it never enrolls the student in the purchased courses. Enrollment happens via a second, separate frontend call, `enrollStudent()` (`displayRazorpay.js:20-39`), fired only after `verifyPayment` succeeds. If that second call fails for any reason (network drop, tab closed, background throttling), it's caught and only `console.error("❌ Enrollment error:", error)`'d (line 37) — no retry, no user-facing error, no backend reconciliation. The student has paid and the `Order` says `"paid"`, but they were never enrolled, and the app gives no indication anything went wrong.
+
+### 7.3 Cart is not cleared server-side after purchase
+`displayRazorpay.js:61-62` only calls `setCartItems([])` — a local React state reset. There is no bulk "clear cart" / "remove purchased items" call to the backend after a successful purchase, and `cart.controller.js`'s `removeFromCart` only supports removing one course at a time. Reloading the cart page after a successful purchase re-fetches from the backend and shows the just-bought courses still sitting in the cart.
+
+### 7.4 No double-submit protection on checkout
+Neither the "Proceed to Checkout" button (`Cart.jsx:113-121`) nor `BuyCourseButton` (`Payment.jsx:13-20`) disable themselves or show a loading state while the Razorpay flow is in progress. `Order.create` (`Payment.controller.js:49-56`) has no idempotency key, so rapid double-clicks can create multiple `Order` documents for the same cart with no de-duplication or cleanup of stale `"created"` orders.
+
+### 7.5 Hardcoded secrets and fake user data in frontend source
+`displayRazorpay.js:90` hardcodes the Razorpay `key` (`"rzp_test_yLlU5Vi0wMY8hC"`) directly in frontend source instead of reading it from an env var; lines 100-103 hardcode `prefill.email`/`prefill.contact` to `"test@example.com"`/`"9999999999"` instead of the logged-in user's real info from `auth` context.
+
+### 7.6 Dead code: `components/Checkout.jsx`
+References `cartItems` and expects a `disabled` prop that are never defined, imported, or passed anywhere (`components/Checkout.jsx:3-11`) — this component throws a `ReferenceError` if it's ever rendered, and it is not imported anywhere in the app; `Cart.jsx` implements its own inline checkout button instead. Safe to delete.
+
+*(`Authorization` headers are correctly placed inside `headers` throughout this payment/cart flow — `displayRazorpay.js`, `EnrollButton.jsx` — this area does not have the header-placement bug found elsewhere in the app.)*
+
+---
+
+## 8. Login/signup, auth backend, and remaining component/config defects
+
+Reviewed: `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`, `Pages/Signup-students.jsx`, `Pages/Signup-Teacher.jsx`, `Pages/LoginCommon.jsx`, the backend `controllers/UserAuth/UserStudent.controller.js` and `UserTeacher.controller.js`, `models/user/userstudentmodel.js`/`userteachermodel.js`, `routes/students.routes.js`/`teachers.routes.js`; plus `components/PDFPreviewModal.jsx`, `CategoryBar.jsx`, `testimonials.jsx`, `udemycomponent.jsx`, `BackgroundWrapper.jsx`, `BackButton.jsx`, `Pages/Modal.jsx`, `Pages/Courseupdatation.jsx`, `Modules.controller.js`, and the Tailwind/Vite config.
+
+### 8.1 Teacher signup is completely broken (confirmed by direct read)
+`UserTeacher.controller.js:31-79` (`registerUser`) creates the teacher and fetches `createdTeacher` (line 61), but never calls the `generateAccessAndRefreshTokens` helper already defined at the top of the same file (lines 14-29) — unlike `UserStudent.controller.js`'s equivalent function, which does call it. Line 67 then logs `accessToken, refreshToken`, and lines 70-71/74 use `accessToken`, `refreshToken`, and `LoggedInUserTeacher` — **none of these variables are ever declared** in this function. This throws a `ReferenceError` on **every single call** to `POST /user/teacher/signup` (routed at `teachers.routes.js:18`, mounted at `/user/teacher` in `app.js:46`), surfaced to the user only as the generic "Registration Failed" message in `components/Signup.jsx:107-111`. **Teacher registration has never worked in production.** This is a second, independent root cause behind "there's no signup option on the deployed site" — separate from the missing navbar link already documented in §2.2.
+
+Fix: call `const {accessToken, refreshToken} = await generateAccessAndRefreshTokens(userTeacher._id)` before line 67, and replace `LoggedInUserTeacher` with the already-fetched `createdTeacher`.
+
+### 8.2 Plaintext password logged to the server console
+`UserStudent.controller.js:50` and `:139` both do `console.log(req.body)` — inside `registerUserStudent` and `loginUserStudent` respectively — before the password is hashed or validated. The entire request body, including the raw plaintext password, ends up in server logs. Anyone with log access (or a misconfigured/leaky log aggregator) can read user passwords in cleartext. Should be removed entirely, not just redacted.
+
+### 8.3 No server-side password strength validation
+Both `registerUserStudent` (`UserStudent.controller.js:56-59`) and `registerUser` (`UserTeacher.controller.js:39-42`) only check that fields are non-empty strings — no length or complexity check. The only enforcement anywhere is a client-side regex, `PWD_REGEX = /^.{8,}$/` (`components/Signup.jsx:9`, 8+ characters, no complexity requirement), trivially bypassed by calling the API directly. (Password *hashing* itself is fine — bcrypt via `pre("save")` hooks at `userstudentmodel.js:42-46` and `userteachermodel.js:39-43`, 10 rounds.)
+
+### 8.4 Signup UX bugs
+`components/Signup.jsx:88-97` calls `navigate(targetUrl)` and only then `setSuccess(true)` — but navigation unmounts the component before the success-gated message (lines 118-123) can ever render; dead branch, and no loading/disabled state on the submit button in the meantime, so double-clicking during the request can fire duplicate signups. Line 210 links to `/terms`, which has no matching route in `main.jsx` — 404s.
+
+### 8.5 Duplicate-user race condition
+Both controllers manually check `$or:[{email},{name}]` for conflicts (`UserStudent.controller.js:63-69`, `UserTeacher.controller.js:46-52`), but only `email` is `unique:true` in the schemas — `name` has no unique index. Two concurrent signups with the same name (different emails) can both race past the pre-check and succeed.
+
+### 8.6 Dead/orphaned pages confirmed
+- `Pages/LoginCommon.jsx` — not imported or routed anywhere; contains the only in-app links to `/login/student` and `/login/teacher`, but since it's never rendered, those links are never shown to any user.
+- `Pages/Login-students.jsx` and `Pages/Login-teacher.jsx` — technically still registered as routes (`main.jsx:29-30`, `login/student` → `LoginS`, `login/teacher` → `LoginT`), so reachable by directly typing the URL, but with `LoginCommon.jsx` itself unreachable and the live `/login` page (`Pages/login.jsx`, already reviewed in §2.2) never linking to either, there is no click-path a real user could take to reach them. Same class of orphaned duplicate as the already-known-dead `App.jsx`. `components/login-form.jsx` (used only by `Login-students.jsx`) has its own latent bug if ever resurrected — `login-form.jsx:30` navigates with an undefined `userId` instead of `auth.user_id`, and its `localStorage`-based auth check (line 78) can never be true since the matching `localStorage.setItem` calls are commented out.
+- `BackgroundWrapper.jsx:8` — `` style={{ backgroundImage: `url(${url}))` }} `` has a stray extra closing paren, producing an invalid CSS value, so the background image never renders. Compounded on the (dead) login pages: `Login-teacher.jsx:8` passes a repo-relative filesystem path instead of a servable URL, and `Login-students.jsx:9` passes its `url` prop to the wrong child component, leaving `BackgroundWrapper` with an empty default.
+
+### 8.7 Systemic IDOR: no ownership checks on module mutation (confirmed by direct read)
+`Modules.controller.js`'s `addModule` (lines 12-35), `updateModule` (100-117), and `deleteModule` (119-132) — and `addLectureToModule`/`addAssignmentToModule` alongside them — never compare `req.teacher._id` against the target course's `author` field; they only check that the course/module exists. The routes only require `verifyJWT` (any valid teacher token, not necessarily the course's owner). Any authenticated teacher can add, rename, or delete **any other teacher's** modules/lectures/assignments by guessing or enumerating `course_id`/`module_id`. This matches the same missing-ownership pattern already present in `Lecture.controller.js` (`updateLecture`, `deleteLecture`) and `Assignment.controller.js` (`deleteAssignment`) — it's systemic across the entire module/lecture/assignment CRUD surface, not a one-off.
+
+### 8.8 `Courseupdatation.jsx` (teacher's module-creation form) defects
+
+**Fixed during the §10.5 modal-refactor pass:**
+- ~~Per-item failures were silently skipped with only a `console.log`, yet the form unconditionally showed "All lectures/assignments/modules added successfully!" regardless.~~ Each lecture/assignment now tracks its own `idle/uploading/done/error` status (surfaced via `FileDropzone`), a failure aborts the submit and shows a dismissible error banner instead of a false success message, and the success banner only fires once every item has actually succeeded.
+- ~~Module/lecture/assignment `id` values were computed as `array.length + 1`, so after any deletion this produced duplicate `id`s, breaking React `key`s and the add/edit/delete handlers that match by `id`.~~ IDs are now `Math.max(existingIds) + 1`, which stays unique across deletions.
+
+**Still open:**
+- Fetches `ownerId` via `/courses/:course_id/getTeacher` but never actually uses it to gate anything — dead state that looks like a permission guard but isn't one.
+- None of its three POST calls (assignment, lecture, module) include an `Authorization` header; it only works today because `verifyJWT` falls back to a cookie, an inconsistent, fragile reliance versus every other authenticated call in the app.
+- No navigation or modal-close after a successful submission — the teacher has to close the "Add Module" modal manually and the module list doesn't auto-refresh (`ViewtheModules.jsx` only reloads on mount).
+
+### 8.9 Competitor content shipped live in production
+`components/testimonials.jsx:6-35` renders four real Udemy user photos, names, and quotes, each linking to `udemy.com/course/...`. `components/udemycomponent.jsx:19,29,39` links to `udemy.com/browse/certification` and `business.udemy.com/...`. Both render live on `Home.jsx` (and `udemycomponent.jsx` also on `TeachersPage.jsx`) — this is leftover scaffold/reference content, not placeholder text, and is actively sending real users to a competitor's site under fabricated LearnStream attribution.
+
+Separately, `udemycomponent.jsx`'s `LearningGoals` feature list (lines 78-83) always renders one hardcoded static image regardless of which feature card is selected — the per-feature `image` field on each item is defined but never used, so the interactive selector has no visible effect beyond a highlight-color change.
+
+### 8.10 Minor UI/accessibility gaps
+- `PDFPreviewModal.jsx` has no backdrop-click-to-close (inconsistent with `Pages/Modal.jsx`, which does close on backdrop click) and no `aria-label` on its `✖` close button; its `<iframe>` has no `sandbox` attribute.
+- `CategoryBar.jsx` gives no visual indication of which category is currently selected.
+
+*(Ruled out: `tailwind.config.js`'s `content` globs correctly cover all component/page files and are not the cause of any styling inconsistency; none of `PDFPreviewModal`, `CategoryBar`, `testimonials`, `udemycomponent`, `BackgroundWrapper`, `BackButton`, or `Pages/Modal.jsx` are dead code — all are actively imported and rendered somewhere in the app.)*
+
+---
+
+## 10. Manual testing findings (post-implementation)
+
+After Modules 0-3 shipped, the app was run locally and manually tested. This surfaced real gaps the static code audit missed, plus one correction to §2.7 above.
+
+### 10.1 Sign-up has no way to switch roles — fixed
+Confirmed: `components/Signup.jsx` (the live form behind both `/signup/student` and `/signup/teacher`) never offered a link to the other role, unlike `Pages/login.jsx` which shows Student and Teacher side by side. Anyone arriving at `/signup/student` (e.g. via the navbar's "Sign up" link) had no visible path to teacher signup, which was the real blocker to testing the teacher workflow — not a leftover backend issue, since Module 1 already fixed the teacher-signup crash itself. **Fixed**: `Signup.jsx` now shows "Signing up to teach instead? Sign up as a teacher" (and the mirror image on the teacher form), matching `login.jsx`'s existing cross-link pattern.
+
+### 10.2 Razorpay checkout modal did not appear — inconclusive, needs a repro detail
+Reported: clicking "Proceed to Checkout" / "Buy Now" did not open the Razorpay modal. Investigated directly (not just re-read the code):
+- `backend/.env` **does** have `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` set (verified they load via `dotenv` despite unusual `KEY = value` spacing in the file; values were not printed).
+- The frontend's `VITE_RAZORPAY_KEY_ID` fallback (`rzp_test_yLlU5Vi0wMY8hC`, in `displayRazorpay.js`) **matches** the backend's configured `RAZORPAY_KEY_ID` exactly — ruled out a key mismatch between the widget and the order.
+- Outbound network access to `https://checkout.razorpay.com/v1/checkout.js` (the script `displayRazorpay.js` injects) resolved with `HTTP 200` from this machine.
+- Could not reproduce live: no Claude-in-Chrome browser extension was connected in this session, and a full purchase flow wasn't simulated via curl because doing so would write test `Order`/enrollment records into what `courses/getallCourses` confirms is a live-looking seeded database, not a local/throwaway one — not done without the user's OK.
+- **What's needed to pin the exact cause**: on the next attempt, check the browser console for any error (including a plain `alert("Razorpay SDK failed to load.")`, which is easy to miss and was the prior code's only failure feedback — see 10.2.1) and check the Network tab for the `/payment/create-order` request's response body.
+
+**10.2.1 — done regardless of root cause**: the checkout flow's error handling was upgraded so a failure is never silent again — see `REQUIREMENTS.md` §8.5-adjacent follow-up: replace the plain `alert()` calls in `displayRazorpay.js` with an on-page, dismissible error state that also logs the server's actual error message (not just a generic string), so any future failure is immediately visible and diagnosable without a console.
+
+### 10.3 Category bar and course catalog grid are unchanged
+Confirmed: `components/CategoryBar.jsx` and `components/CourseComp.jsx` were not touched by Modules 0-3 (those modules covered navbar, hero, payment, and new pages, not the course browsing UI). The known defects here — hardcoded 5-star ratings (§6.1), no active-category indicator (§6.5/§8.10), inconsistent card spacing — are already logged but hadn't been scheduled ahead of Module 4. **Action**: pull the category bar and course grid restyle forward into Module 4 explicitly (was previously implied by "apply the grid pattern... to the course card list" in `REQUIREMENTS.md` §5, but not called out as its own line item).
+
+### 10.4 Cart and dashboard styling still largely original
+Expected and by design — Module 4 (design system consolidation: shadcn/ui migration, shared design tokens, cart/course-grid relayout) hadn't started yet when this round of testing happened. No new finding here beyond confirming Module 4 is still pending.
+
+**Update — Module 4 now done** (see `REQUIREMENTS.md` §12 for full detail): shadcn/ui is bootstrapped (pinned to CLI `@2.10.0` — `@latest` is now Tailwind v4-first and breaks this Tailwind v3 project), `brand`/`max-w-container` design tokens are in `tailwind.config.js`, `Navbar1.jsx` and `login.jsx` are migrated off `flowbite-react` onto shadcn primitives, the cart line items use the `grid-cols-[96px_1fr_auto]` pattern from §4.4, and §10.3's category-bar/course-grid restyle is done (5-star fake ratings removed, active-category indicator added). Not yet verified visually — no connected browser this session, only confirmed to build cleanly.
+
+### 10.5 Teacher dashboard layout & creation-modal UX gaps (manual testing round 2 — Module 6)
+
+Manual testing of the teacher workflow surfaced three real issues. This is Module 6 (teacher workflow fixes) scope, not Module 4 (design system) — Module 4 is narrowly the shadcn/ui migration and doesn't cover teacher-dashboard layout or these modals; see `REQUIREMENTS.md` §13 for the full Module 6 plan and §12 for why the shadcn swap of these same components is deferred to Module 4 rather than done here. Fixed with a Tailwind-only pass, no new dependencies:
+
+- **Misplaced primary CTA**: `TeachersPage.jsx`'s "Make a new course" button lived in a bottom `relative bottom-4 right-4` block below both the "My Courses" and "Top Courses" sections — effectively below the fold, and it was the only element that visually distinguished the teacher dashboard from the student dashboard (both render the same `GeneralCourses`/`CourseComp` marketplace grid). **Fixed**: the CTA is now a header-level "Create Course" button next to the page's own "Teacher Dashboard" / "Welcome, {name}" heading, always above the fold, plus a matching CTA in a new empty state shown when a teacher has zero courses (previously an empty "My Courses" section had no call to action at all).
+- **Cross-teacher discovery competing with the management workflow**: the dashboard embedded the exact same `GeneralCourses` component (full category-filter bar + course grid) used on `StudentPage.jsx`, under the same "Top Courses" heading — this is the concrete cause of "looks identical to the Student page." **Recommendation**: a teacher's own dashboard should lead with their own content; full marketplace browsing (with a category filter UI) belongs on the learner-facing storefront, not duplicated verbatim on the creator dashboard — comparable tools (e.g. instructor-facing dashboards on other platforms) generally omit a "browse other creators' content" feed entirely, or reduce it to a small, clearly-secondary teaser. **Applied**: `GeneralCourses` gained two opt-in, backward-compatible props (`showCategoryBar`, `limit`) so this one call site can render a category-bar-free, 3-card teaser instead of the full grid; it now sits in a visually demoted section ("What other instructors are teaching," muted background, smaller heading, below "My Courses") with a "Browse the full catalog →" link out to the real catalog on `Home.jsx` (`/#courses`), rather than reproducing the whole browsing UI in place.
+- **Creation modals lacked structure and upload feedback**: `Pages/Modal.jsx`, `Courseupdatation.jsx` (module/lecture/assignment creation), and `components/LectureAssignment.jsx` (add lecture/assignment to an existing module) all used bare `<input type="file">` elements with no drag-and-drop, no filename/size confirmation, and no upload-progress or per-item success/error feedback — matching the "misleading success feedback" defect already logged in §8.8. **Fixed**: added a shared `components/FileDropzone.jsx` (drag-and-drop target, filename/size display, per-file status icon, and a live progress bar wired to axios's `onUploadProgress`) and rebuilt both forms on it, with real per-lecture/per-assignment `idle → uploading → done/error` state instead of a blanket end-of-submit `alert()`.
+
+**Two additional bugs found and fixed while touching this code:**
+- `Pages/Modal.jsx`'s close button was `absolute top-2 right-2` inside a modal box that was never given `position: relative` — since the backdrop wrapper is `fixed inset-0` (itself a positioning context spanning the full viewport), the button was actually anchored to the top-right of the *viewport*, not the modal card, on any modal wide enough to leave a gap. Fixed by making the modal box `relative` and giving it a proper header row (title + close button) instead of a floating overlay button.
+- `components/GeneralCourses.jsx`'s fetch error handler called `errRef.current.focus()`, but `errRef` was never defined, received as a prop, or passed by any of its three call sites (`Home.jsx`, `StudentPage.jsx`, `TeachersPage.jsx`) — any failed course fetch threw a `ReferenceError` inside the catch block instead of surfacing `errMsg`. Removed the dead reference.
+
+---
+
+## 11. Summary of everything to correct
+
+**Critical — ship first (P0):**
+1. Fix `StudentPage.jsx:49-53`'s Authorization header placement bug — the original "unauthorized after login" root cause (§2.1).
+2. Fix teacher signup's `ReferenceError` crash (§8.1) — teacher registration has never worked in production.
+3. Fix the assignment-submission data leak in `getAssignmentById` (§6.4) — any student can currently read classmates' submissions.
+4. Add ownership checks across `Modules.controller.js`/`Lecture.controller.js`/`Assignment.controller.js` (§8.7) — any teacher can currently edit/delete any other teacher's course content.
+5. Validate payment amount server-side in `Payment.controller.js` (§7.1) — currently trusts a client-supplied amount.
+6. Stop logging plaintext passwords server-side (§8.2).
+
+**High priority (P1):**
+7. Make enrollment atomic with payment verification and clear the cart server-side after purchase (§7.2, §7.3).
+8. Decide on and migrate to a single component system (§1, detailed in `REQUIREMENTS.md` §2).
+9. Add Login/Sign Up (and Cart, when logged in) as persistent, always-reachable navbar links; fix navbar links to use React Router `Link`, not raw `href` (§2.2, §2.5).
+10. Fix/rebuild the hero section (§2.3).
+11. Un-comment and wire up the axios response interceptor for automatic token refresh on 401 (§2.6).
+12. Remove hardcoded Razorpay key and fake prefill data from frontend source (§7.5).
+
+**Medium priority (P2):**
+13. Build real pages for About, Services, Pricing, Contact, and Profile (§4).
+14. Re-lay-out the navbar and cart with an explicit grid/flex system (§3, detailed in `REQUIREMENTS.md` §4).
+15. Add a course-count stat to the landing page (§5).
+16. Replace hardcoded 5-star ratings with either a real review system or no rating UI at all (§6.1).
+17. Build real watch-percentage tracking for lecture completion (§6.3) — removing the premature "mark complete on click" call as part of this also fixes the confirmed label/checkbox double-fire bug found via the e2e suite (§12.3): the checkbox is nested inside a `<label>` inside the Card's own `onClick`, so one physical click currently fires the completion POST twice.
+18. Fix the dead "Add lecture-assignment" button and add a teacher grading/feedback mechanism (§6.5).
+19. Remove the live Udemy competitor content from `testimonials.jsx`/`udemycomponent.jsx` (§8.9).
+20. Add server-side password strength validation and fix the Signup success/loading-state UX bugs (§8.3, §8.4).
+21. Fix `Courseupdatation.jsx`'s missing auth headers and add a real ownership gate / post-submit navigation (§8.8) — the silent-failure/false-success UX and ID-collision parts of this item are done (§10.5).
+22. Add double-submit protection to checkout buttons (§7.4).
+23. Minor polish: `PDFPreviewModal`/`CategoryBar`/`BackgroundWrapper` fixes (§8.10, §8.6).
+24. Redesign the category bar and course catalog grid (`CategoryBar.jsx`, `CourseComp.jsx`) — confirmed still untouched by manual testing (§10.3); pull forward into Module 4 explicitly rather than leaving it implicit.
+25. Replace the checkout flow's plain `alert()` failure messages with a visible, dismissible on-page error state that surfaces the server's actual error text (§10.2.1) — needed regardless of what the Razorpay modal's root cause turns out to be.
+
+27. Teacher dashboard CTA/hierarchy fix, cross-teacher discovery demotion, and creation-modal/upload UX rebuild — done with the existing Tailwind/flowbite-react stack (§10.5, `REQUIREMENTS.md` §13, Module 6); revisit these same components' buttons/dialog/inputs when Module 4's shadcn/ui migration reaches them (see `REQUIREMENTS.md` §12.1 step 7).
+
+**Cleanup (P3):**
+26. Delete dead code: `App.jsx`, `components/Checkout.jsx` (already done), `Pages/LoginCommon.jsx`, `Pages/Login-students.jsx`, `Pages/Login-teacher.jsx`, and — only once those three are gone — `components/login-form.jsx`; remove unused `mdb-react-ui-kit`/`@mui/icons-material` dependencies. **`components/Signup.jsx` is live and must not be deleted** (§2.7 correction).
+
+---
+
+## 12. E2E test plan (Playwright) — built and run, 2026-09-12
+
+Companion to `BACKEND_AUDIT.md §9`'s backend test plan (Vitest + supertest + mongodb-memory-server) — same spirit, different layer. Lives at `LearnStream/e2e/`, its own workspace sibling to `frontend/` and `backend/`.
+
+### 12.1 Tooling
+
+| Concern | Choice | Why |
+|---|---|---|
+| Test runner | **Playwright + TypeScript** | First-class network/console interception APIs; TS matters here specifically because the suite's value is a structured log — a typo in a field name would silently corrupt it. |
+| Test database | **mongodb-memory-server** | Genuinely isolated, ephemeral MongoDB — `global-setup.ts` starts it and spawns the real backend against it on `:8000` (same port your manual dev backend uses — stop that first), `global-teardown.ts` tears both down. Zero manual provisioning. |
+| Fixture data | Seeded via direct API calls in `global-setup.ts`: a teacher, two courses (two categories, so the category bar has something to switch between), a module with two lectures, a student. Enrollment is done by **forging the Razorpay HMAC signature** `verifyPayment` checks (`Payment.controller.js` never actually calls Razorpay's API to confirm a payment happened — a real, separate finding, worth its own `BACKEND_AUDIT.md §2.9` follow-up) rather than driving the real checkout UI — faster and deterministic, since checkout itself isn't one of the 4 flows being tested. **This breaks if §2.9 is ever fixed properly** — would need to switch to a mocked Razorpay API or the real checkout UI at that point. |
+| Auth in tests | **Fresh login via the real UI at the start of every authenticated test** (`lib/selectors.ts`'s `loginAs`), not a reused `storageState` snapshot. Discovered why during implementation: `AuthProvider.jsx` refreshes on every mount and `auth.routes.js`'s `refreshAccessToken` rotates the stored refresh token on every successful call, so a static pre-captured cookie only survives being used once — every subsequent fresh browser context loaded from the same snapshot presents a now-stale token and fails. |
+| No mocking layer | Deliberate — this suite exists to catch real integration bugs against real dev servers, unlike the backend Vitest suite's `vi.mock()`-everything approach. |
+
+### 12.2 Scope
+
+The 4 flows from the original ask: Authentication/Token Refresh, Navigating Course Lists, Viewing Course Details, Marking a Lecture Complete. **Not doing yet**: teacher course-authoring UI, assignment submission/grading, cart, profile pages.
+
+### 12.3 Real findings from actually running it
+
+**New bug, confirmed reproducible on every single run**: `LectureAssig.jsx`'s lecture `Card` has its `onClick={() => handleSelectLecture(lecture)}` wrapping a `<label>` that itself wraps the completion `<input type="checkbox">`. Clicking anywhere inside a `<label>` that contains a form control is standard browser behavior that also forwards a synthetic click to that control — and that forwarded click **also bubbles up to the Card's `onClick`**. So one physical user click fires `handleSelectLecture` twice, sending two identical `POST .../complete` requests every time, not just under rapid double-clicking. This compounds with the pre-existing missing in-flight guard (no debounce, only an async `completedLectures[lecture._id]` state check): a genuine rapid double-click can produce **up to four** POSTs for what the user experiences as two clicks. Confirmed via `e2e/tests/lecture-completion.spec.ts` — both the single-click and rapid-double-click tests are red by design, documenting this exact behavior. **Fix**: don't nest the checkbox inside the same clickable element as the Card's `onClick` — move it outside the `<label>`, or stop making the whole Card clickable and use a dedicated button instead.
+
+**New bug, confirmed**: `AuthProvider.jsx` calls `fetchNewAccessToken()` unconditionally on every single page mount — including a fully anonymous visitor who has never logged in and has no refresh cookie at all. Confirmed live: loading the Home page in a brand-new browser context still fires a failing `POST /auth/refresh-Token` (masked as 400 per `BACKEND_AUDIT.md §2.11`) and logs `"Error refreshing access token"` to the console. Harmless functionally (the app still renders correctly for guests) but noisy — every anonymous page load makes a doomed network call and logs an error. **Fix**: only attempt the refresh if there's some hint a session might exist (e.g., check for the presence of `userMeta` in localStorage first).
+
+**Fixed directly during this work** (trivial, low-risk): `components/Footer.jsx` used raw SVG attribute names `fill-rule`/`clip-rule` instead of React's `fillRule`/`clipRule`, producing a React console warning on every single page load (Footer renders in the shared `Layout`). Renamed both attributes across all four icons in the file.
+
+**Confirmed, already documented**: `cart.controller.js`'s `getCart` 404s for any student who has never added anything to their cart yet (`BACKEND_AUDIT.md §3.5`, "Empty cart returns 404") — `AddToCartBtn.jsx` renders on every course-detail page and hits this on mount for a fresh student. Not a new finding, but empirically confirmed live via the fixture student.
+
+**Test-suite-only quirks worth knowing, not app bugs**: React 18 StrictMode double-invokes `AuthProvider`'s mount effect in dev, which made an early version of the token-refresh-retry test flaky (fixed by registering the `page.route()` interceptor before the initial navigation instead of around a `page.reload()`, and relaxing exact-count assertions on refresh-call counts to `>=` checks).
+
+### 12.4 Spec inventory
+
+- `tests/auth-token-refresh.spec.ts` — login (success/failure), refresh with a valid cookie, refresh with a missing cookie (asserts the *correct* 401 — currently red per `BACKEND_AUDIT.md §2.11`'s masked-400 bug, kept visible rather than skipped), and a forced-401-triggers-retry test against the axios interceptor.
+- `tests/course-list-navigation.spec.ts` — Home page catalog load, category switching, authenticated student-dashboard fetch carries the `Authorization` header.
+- `tests/course-detail-view.spec.ts` — all four on-mount calls (`modules`, course detail, `progress`, `enrolled`) succeed, "Already Enrolled" renders (proves the forged-signature fixture enrollment actually took effect server-side), module expand/collapse causes zero additional network calls.
+- `tests/lecture-completion.spec.ts` — the label/checkbox double-fire finding above (both single- and rapid-double-click cases), reload-persists-without-re-POST, no unexpected console errors.
+
+### 12.5 Duplicate/console-noise detection
+
+`lib/duplicate-detection.ts` — pure functions over the captured network log: duplicate POSTs to the same URL, GETs to the same URL within 500ms of each other (reported as a finding, not a hard failure — e.g. `Home.jsx` and `GeneralCourses.jsx` both independently call `/courses/getallCourses` on mount, a plausible acceptable inefficiency), back-to-back OPTIONS preflights to the same endpoint. `lib/console-allowlist.ts` holds the known, accepted noise patterns above (refresh-on-every-mount, the cart-404) so they don't drown out a genuinely new console error in the "no unexpected console errors" assertions.
+
+### 12.6 Running it
+
+```
+cd LearnStream/e2e
+npm install && npx playwright install chromium
+# stop your manual `npm start` in backend/ first — global-setup.ts binds :8000 itself
+npm test
+```
+
+Structured JSON output per run lands in `e2e/logs/` (gitignored) — one file per `playwright test` invocation, network + console entries per test plus a summary. `global-teardown.ts` always stops the spawned backend and in-memory MongoDB, leaving `:8000` free again afterward.
+
+**Current state**: 12 passing, 3 failing by design (the §2.11 masked-401 regression target, and the two label/checkbox double-fire findings above) — not a suite to "get to green" by loosening those three, since each documents a real, currently-unfixed bug.
