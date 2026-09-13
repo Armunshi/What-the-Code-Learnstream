@@ -1164,12 +1164,12 @@ separately on :2000; nothing auto-starts it, only the backend is spawned by
 `global-setup.ts`).
 
 ### Module B6 — Hardening & tests
-- [ ] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7).
-- [ ] `NODE_ENV`-derived cookie flags in one shared place (§3.12).
-- [ ] Request validation schemas (§3.4).
-- [ ] Pagination (§3.10) and the N+1 fix (§3.9).
-- [ ] First tests — prioritise regression tests for §1.1, §1.2, §1.3, §2.3, and §3.1, each of which a single assertion would have caught.
-- [ ] Strip logging noise / PII (§4.3); fix the message copy-paste errors (§4.4).
+- [x] `helmet`, rate limiting on auth routes, upload size limits + randomised filenames, temp dir outside `public/` (§2.10, §4.7). `crossOriginResourcePolicy` explicitly set to `cross-origin` — helmet's own default (`same-origin`) would have made browsers block the Vercel frontend's cross-origin fetches to this API regardless of CORS headers, which would have broken the entire app.
+- [x] `NODE_ENV`-derived cookie flags in one shared place (§3.12) — moved into `config/env.js`'s `cookieOptions`.
+- [x] Request validation schemas (§3.4) — zod schemas + a `validate()` middleware for register/login, which also closes §4.5's "no password length constraint" at the request boundary.
+- [x] Pagination (§3.10) and the N+1 fix (§3.9) — `getCoursesByCategory` now uses `.populate('author','name')` instead of a per-course lookup; both list endpoints accept `page`/`limit` with a default page size larger than the current catalog, so existing callers see no behavioural change.
+- [x] First tests — Vitest + Supertest + mongodb-memory-server (`npm run test:unit`), Cloudinary/Razorpay mocked at the SDK boundary. Regression tests for §1.1, §1.2, §1.3, §2.3, and §3.1 (11 tests, 5 files under `tests/regressions/`). Left as `npm test` for the e2e suite, unchanged.
+- [x] Strip logging noise / PII (§4.3); fix the message copy-paste errors (§4.4) — most of §4.3's findings were already gone from the B5 restructure; removed the one remaining full-order `console.log` in `Payment.controller.js`. Registration now returns 201 with "User registered successfully" instead of 200 "User Logged in Succesfully"; "succesfully" fixed throughout the controllers.
 
 ---
 
