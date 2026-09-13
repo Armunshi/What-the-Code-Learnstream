@@ -46,17 +46,19 @@ const getCourseById = asyncHandler(async (req, res) => {
 });
 
 const getCoursesByCategory = asyncHandler(async (req, res) => {
-    const { category } = req.query;
+    const { category, page, limit } = req.query;
 
     if (!category) throw new ApiError(400, "Category is required");
 
-    const courses = await courseService.getCoursesByCategory(category);
+    const courses = await courseService.getCoursesByCategory(category, { page, limit });
 
     return res.status(200).json(new ApiResponse(200, courses, "Courses fetched successfully"));
 });
 
 const getAllCourses = asyncHandler(async (req, res) => {
-    const courses = await courseService.getAllCourses();
+    const { page, limit } = req.query;
+
+    const courses = await courseService.getAllCourses({ page, limit });
 
     return res.status(200).json(new ApiResponse(200, courses, "Courses Fetched Succesfully"));
 });

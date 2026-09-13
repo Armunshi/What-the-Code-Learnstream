@@ -74,22 +74,38 @@ export const getCourseById = async (courseId) => {
     return course;
 };
 
-export const getCoursesByCategory = async (category) => {
-    const courses = await Courses.find({ category }).select("thumbnail title author modules price ");
+// DEFAULT_PAGE_SIZE is deliberately larger than the current catalog (a
+// couple dozen courses) so existing callers that don't pass page/limit see
+// no behavioural change — this closes the "unbounded find()" gap
+// (BACKEND_AUDIT.md §3.10) without requiring a frontend change to opt in.
+const DEFAULT_PAGE_SIZE = 100;
 
-    // NOTE: one author query per course — the N+1 recorded as §3.9. Preserved
-    // exactly as it was; fixing it is B6's, and doing it inside a pure
-    // refactor would hide a behavioural change in a mechanical diff.
-    return Promise.all(
-        courses.map(async (course) => ({
-            ...course._doc,
-            author: await User.findById(course.author).select("name"),
-        }))
-    );
+const paginationParams = ({ page, limit } = {}) => ({
+    page: Math.max(1, Number.isFinite(+page) ? Math.trunc(+page) : 1),
+    limit: Math.min(200, Math.max(1, Number.isFinite(+limit) ? Math.trunc(+limit) : DEFAULT_PAGE_SIZE)),
+});
+
+export const getCoursesByCategory = async (category, pagination) => {
+    const { page, limit } = paginationParams(pagination);
+
+    // .populate('author', 'name') replaces a per-course User.findById in a
+    // loop — the N+1 recorded as §3.9 — the same way getCourseById already
+    // populates its single course.
+    return Courses.find({ category })
+        .select("thumbnail title author modules price")
+        .populate("author", "name")
+        .skip((page - 1) * limit)
+        .limit(limit);
 };
 
-export const getAllCourses = async () =>
-    Courses.find().select("thumbnail title description price category rating");
+export const getAllCourses = async (pagination) => {
+    const { page, limit } = paginationParams(pagination);
+
+    return Courses.find()
+        .select("thumbnail title description price category rating")
+        .skip((page - 1) * limit)
+        .limit(limit);
+};
 
 export const isStudentEnrolled = async (studentId, courseId) => {
     const student = await User.findById(studentId);
