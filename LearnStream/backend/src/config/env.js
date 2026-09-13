@@ -53,10 +53,30 @@ function originList(name) {
 }
 
 const nodeEnv = optional("NODE_ENV", "development");
+const isProduction = nodeEnv === "production";
+
+// The one shared definition of the auth cookie flags (BACKEND_AUDIT.md
+// §3.12) — previously hardcoded to the production values (secure: true,
+// sameSite: "none") regardless of NODE_ENV. Production needs those, plus
+// `partitioned`, because the Vercel frontend and Render backend are
+// different sites, making these cookies cross-site by construction and
+// exactly the kind Chrome blocks or drops without CHIPS (see
+// UserAuth/auth.controller.js for the full history). Locally, frontend and
+// backend differ only by port, which browsers treat as the same site, so
+// `secure: true` would needlessly require HTTPS on localhost and
+// `sameSite: "none"` needlessly relax a same-site cookie.
+const cookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
+  ...(isProduction ? { partitioned: true } : {}),
+  maxAge: 24 * 60 * 60 * 1000, // 1 day
+};
 
 const config = {
   nodeEnv,
-  isProduction: nodeEnv === "production",
+  isProduction,
+  cookieOptions,
   port: port("PORT", 8000),
   mongodbUri: required("MONGODB_URI", {
     description: "MongoDB connection string, without the database name",
