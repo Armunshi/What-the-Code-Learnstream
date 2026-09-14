@@ -1,8 +1,10 @@
 // Builds a fully isolated environment for one e2e run:
 // 1. Starts an ephemeral in-memory MongoDB (mongodb-memory-server).
-// 2. Spawns the real backend against it, on :8000 — binds the same port
-//    your manually-started dev backend uses, so that must be stopped first
-//    (documented in README.md).
+// 2. Spawns the real backend against it, on E2E_BACKEND_PORT (default 8000,
+//    see playwright.config.ts) — if that matches the port your manually
+//    -started dev backend uses, that must be stopped first (documented in
+//    README.md). Override E2E_BACKEND_PORT/E2E_FRONTEND_PORT to run fully
+//    isolated from any other e2e run on the same machine.
 // 3. Seeds a teacher, a course with two lectures, and a student enrolled in
 //    it — all via direct API calls, except enrollment, which is driven by
 //    POSTing a correctly-signed `payment.captured` payload to
@@ -29,6 +31,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { runtime } from './lib/e2e-runtime.js';
 import { initRun } from './lib/log-writer.js';
 import * as api from './lib/api-client.js';
+import { runSeeds } from './lib/seed-registry.js';
+import { BACKEND_URL } from './playwright.config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const E2E_ROOT = __dirname;
@@ -48,13 +52,36 @@ function parseEnvFile(filePath: string): Record<string, string> {
   return out;
 }
 
+// Overridable so N parallel worktree lanes can each run a fully isolated
+// e2e suite without binding the same backend/frontend ports (see
+// playwright.config.ts). Falls back to today's historical defaults.
+const E2E_BACKEND_PORT = process.env.E2E_BACKEND_PORT ?? '8000';
+const E2E_FRONTEND_PORT = process.env.E2E_FRONTEND_PORT ?? '2000';
+
 async function startBackend(mongoUri: string): Promise<void> {
   const envFile = parseEnvFile(path.join(E2E_ROOT, '.env.e2e'));
   const child = spawn('node', ['src/index.js'], {
     cwd: BACKEND_DIR,
     // dotenv (called inside index.js) does NOT override already-set
     // process.env values, so everything here wins over the real backend/.env.
-    env: { ...process.env, ...envFile, MONGODB_URI: mongoUri },
+    // PORT/CORS_ORIGIN are pinned to this run's port pair (not whatever
+    // .env.e2e or the host environment says) so the spawned backend always
+    // listens where this config's BACKEND_URL and the frontend's
+    // VITE_BACKEND_URL expect it. E2E_MAIL_OUTBOX/E2E_TEST_ROUTES/
+    // MEDIA_PROVIDER are always-on for e2e runs: other lanes' future code
+    // (a test mail outbox, test-only routes, a fake media provider) reads
+    // these, and always setting them here means every lane's e2e run has
+    // them without each lane having to remember to.
+    env: {
+      ...process.env,
+      ...envFile,
+      MONGODB_URI: mongoUri,
+      PORT: E2E_BACKEND_PORT,
+      CORS_ORIGIN: `http://localhost:${E2E_FRONTEND_PORT}`,
+      E2E_MAIL_OUTBOX: '1',
+      E2E_TEST_ROUTES: '1',
+      MEDIA_PROVIDER: 'fake',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout?.on('data', (d) => process.stdout.write(`[e2e-backend] ${d}`));
@@ -85,7 +112,9 @@ export default async function globalSetup(): Promise<void> {
   runtime.mongod = mongod;
   const mongoUri = mongod.getUri().replace(/\/$/, '');
 
-  console.log('[e2e setup] spawning isolated backend on :8000 (stop your manual dev backend first)...');
+  console.log(
+    `[e2e setup] spawning isolated backend on :${E2E_BACKEND_PORT} (stop your manual dev backend first if it uses the same port)...`
+  );
   await startBackend(mongoUri);
 
   const runId = Date.now().toString(36);
@@ -177,6 +206,25 @@ export default async function globalSetup(): Promise<void> {
     webhookBody,
     signWebhook(webhookBody, envFile.RAZORPAY_WEBHOOK_SECRET)
   );
+
+  // Lane-owned fixture data (docs/contracts/registries.md "e2e seeds") runs
+  // after the base fixture above, never as part of it — see
+  // lib/seed-registry.ts. A run with no e2e/seeds/*.seed.ts files (true as
+  // of Wave 0) is a no-op here.
+  console.log('[e2e setup] running e2e/seeds/*.seed.ts registry...');
+  await runSeeds({
+    runId,
+    teacher: { creds: teacherCreds, accessToken: teacherLogin.accessToken },
+    student: { creds: studentCreds, accessToken: studentLogin.accessToken },
+    course: {
+      id: course._id,
+      moduleId: courseModule._id,
+      lectureId: lecture._id,
+      lecture2Id: lecture2._id,
+    },
+    api,
+    backendUrl: BACKEND_URL,
+  });
 
   // No storageState capture here — deliberately. AuthProvider refreshes on
   // every mount and the refresh endpoint rotates the token on every call
