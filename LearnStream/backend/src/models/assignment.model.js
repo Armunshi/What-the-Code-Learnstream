@@ -16,7 +16,7 @@ const assignmentSchema = new Schema({
     },
     module_id: { // Links assignments to modules
         type: Schema.Types.ObjectId,
-        ref: 'Modules',
+        ref: 'Sections',
         required: true,
     },
     title: {

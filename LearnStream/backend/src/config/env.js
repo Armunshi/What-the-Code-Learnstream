@@ -105,6 +105,37 @@ const config = {
     // in the Razorpay dashboard — a much worse failure than the one it guards.
     webhookSecret: optional("RAZORPAY_WEBHOOK_SECRET", null),
   },
+  // Everything below is new in W0-B: keys that Wave 1 lanes (UPL, AUTH, e2e
+  // fixtures) will need, added now so no later lane has to touch this frozen
+  // file. All have dev-safe fallbacks — none of them can stop the server from
+  // booting, because the features that read them either aren't wired up yet
+  // (media/mail) or are purely test scaffolding (E2E_*).
+  media: {
+    // 'fake' lets local dev and CI run the media pipeline without a real
+    // Cloudinary account — services/media/providers/fake.js is the
+    // implementation this selects.
+    provider: optional("MEDIA_PROVIDER", "cloudinary"),
+    // Where Cloudinary calls back after an async upload/transcode finishes.
+    // Optional: the direct-to-Cloudinary pipeline that needs this is a later
+    // (UPL) lane's job, not Wave 0's.
+    notificationUrl: optional("CLOUDINARY_NOTIFICATION_URL", ""),
+    uploadFolder: optional("CLOUDINARY_UPLOAD_FOLDER", "learnstream"),
+  },
+  // AUTH (Wave 1) sends verification/OTP mail through this. Left unset in dev
+  // — nodemailer is only imported by AUTH's own code, so an empty SMTP_URL
+  // here is inert until that lane wires a transport up to it.
+  smtpUrl: optional("SMTP_URL", ""),
+  // Signs OTP payloads for the (also Wave 1) email/phone verification flow.
+  // Deliberately `optional`, not `required`: promoting it now would stop
+  // Wave 0's server from booting over a secret only a not-yet-written feature
+  // reads, the same reasoning as `razorpay.webhookSecret` above. AUTH's own
+  // lane is responsible for requiring a non-default value before it ships.
+  otpSecret: optional("OTP_SECRET", "dev-only-otp-secret-change-me"),
+  // e2e-only scaffolding, gated by isProduction below wherever it's read
+  // (see app.js's routes/test/* mount and the mail-outbox helper AUTH adds) —
+  // "falsy by default" is what keeps these out of every real deployment.
+  e2eMailOutbox: optional("E2E_MAIL_OUTBOX", "") === "1",
+  e2eTestRoutes: optional("E2E_TEST_ROUTES", "") === "1",
 };
 
 if (problems.length > 0) {

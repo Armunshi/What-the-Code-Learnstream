@@ -20,10 +20,42 @@ const MIN_PASSWORD_LENGTH = 8;
 // implicit — `__t` instead of the collection name — which is the same shape of
 // problem §5.4 describes. An explicit field is what the guards read and what
 // the JWT carries, so there is exactly one answer to "what is this user".
+// A 24-character hex string is what an ObjectId looks like — /user/:id and
+// /user/:username share one route family (docs/contracts/api-conventions.md
+// D8), so a username that happened to be 24 hex characters would be
+// ambiguous with an id at lookup time. Rejected at the schema level so it
+// can never be created in the first place, not just avoided by convention.
+const HEX24 = /^[0-9a-f]{24}$/i;
+
+const linkSchema = new Schema(
+    { label: { type: String }, url: { type: String } },
+    { _id: false }
+);
+
 const userSchema = new Schema({
     name: {
         type: String,
         required: true,
+    },
+    // Split name fields (user.model.js additions, docs/contracts/domain-model.md).
+    // `name` stays as the single field every existing document, token and
+    // query already uses; these are additive and kept in sync with it by the
+    // pre-save hook below rather than replacing it outright.
+    firstName: { type: String, trim: true },
+    lastName: { type: String, trim: true },
+    username: {
+        type: String,
+        trim: true,
+        // sparse: most existing accounts have no username until they set one
+        // (or until migrate-w0-users-split-names.js's follow-up, if any lane
+        // chooses to backfill it) — a plain unique index would reject every
+        // document past the first with username: undefined.
+        unique: true,
+        sparse: true,
+        validate: {
+            validator: (value) => value === undefined || value === null || !HEX24.test(value),
+            message: "username cannot be a 24-character hex string — it would collide with an ObjectId in /user/:id routing",
+        },
     },
     email: {
         type: String,
@@ -34,6 +66,7 @@ const userSchema = new Schema({
         lowercase: true,
         trim: true,
     },
+    emailVerifiedAt: { type: Date },
     password: {
         type: String,
         required: true,
@@ -48,10 +81,30 @@ const userSchema = new Schema({
         type: String, // cloudinary url
         required: false,
     },
+    avatarPublicId: { type: String },
     coverImage: {
         type: String, // cloudinary url
         required: false,
     },
+    headline: { type: String },
+    bio: { type: String },
+    links: { type: [linkSchema], default: [] },
+    language: { type: String, default: "en" },
+    phone: { type: String },
+    phoneVerifiedAt: { type: Date },
+    interests: { type: [String], default: [] },
+    // Free-form onboarding progress/answers — shape intentionally loose here;
+    // the lane that builds onboarding (Wave 1) owns what goes inside it.
+    onboarding: { type: Schema.Types.Mixed, default: () => ({}) },
+    privacy: {
+        showCourses: { type: Boolean, default: true },
+    },
+    wishlist: [
+        {
+            type: Schema.Types.ObjectId,
+            ref: "Courses",
+        },
+    ],
     // Enrolled courses for a student, authored courses for a teacher. One
     // field with two meanings is not lovely, but it is what every existing
     // document and every existing query already uses; renaming it is a
@@ -66,6 +119,16 @@ const userSchema = new Schema({
         type: String,
     },
 }, { timestamps: true });
+
+// Roles remain student | teacher only — multi-role accounts and an admin
+// role are Deferred (docs/contracts/domain-model.md).
+userSchema.pre("save", function (next) {
+    if (this.isModified("firstName") || this.isModified("lastName")) {
+        const derived = [this.firstName, this.lastName].filter(Boolean).join(" ").trim();
+        if (derived) this.name = derived;
+    }
+    next();
+});
 
 // Length has to be checked here, before hashing, not with schema `minlength`.
 // bcrypt output is always 60 characters, so a minlength on the stored value

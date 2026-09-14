@@ -34,7 +34,7 @@ const lectureSchema = new Schema({
     },
     module_id: { // Links lectures to modules
         type: Schema.Types.ObjectId,
-        ref: 'Modules',
+        ref: 'Sections',
         required: true,
     }
 }, {
