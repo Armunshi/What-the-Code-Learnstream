@@ -1,0 +1,18 @@
+{
+  "lane": "nav",
+  "name": "Site header",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "frontend/src/components/layout/**",
+    "frontend/src/features/nav/**",
+    "frontend/src/features/teach/**"
+  ],
+  "appends": [
+    "frontend/src/features/teach/routes.jsx",
+    "frontend/src/features/nav/menu.js"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Takes over components/layout/** and components/{Navbar1,Footer}.jsx from the Wave 0 handoff. Builds SiteHeader per docs/contracts/stubs.md #5.1, but consumes the GlobalSearch (SRC) and CartButton (COM) stubs unchanged. menu.js append is the Session group only. Wave 1 merge order: 7th."
+}

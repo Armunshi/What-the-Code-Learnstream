@@ -1,0 +1,27 @@
+{
+  "lane": "acc",
+  "name": "Account suite, public profile, wishlist",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/routes/features/users.routes.js",
+    "backend/src/services/user/**",
+    "frontend/src/features/account/**",
+    "frontend/src/features/profile/**",
+    "frontend/src/features/wishlist/**",
+    "frontend/src/Pages/StudentProfile.jsx",
+    "frontend/src/Pages/TeacherProfile.jsx"
+  ],
+  "appends": [
+    "frontend/src/features/account/routes.jsx",
+    "frontend/src/features/profile/routes.jsx",
+    "frontend/src/features/wishlist/routes.jsx",
+    "frontend/src/features/account/menu.js",
+    "frontend/src/features/profile/menu.js",
+    "frontend/src/features/wishlist/menu.js",
+    "e2e/seeds/account.seed.ts"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Replaces the WishlistButton/PublicProfilePage stub bodies (frozen signatures). Wave 1 merge order: 9th."
+}

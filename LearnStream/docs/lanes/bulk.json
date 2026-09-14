@@ -1,0 +1,17 @@
+{
+  "lane": "bulk",
+  "name": "Bulk uploader",
+  "wave": 3,
+  "dependsOn": [
+    "curr",
+    "upl"
+  ],
+  "owns": [
+    "backend/src/routes/features/instructorBulk.routes.js",
+    "frontend/src/features/instructor-course/steps/curriculum/toolbar-actions/bulk-upload/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Wave 3 merge order: 3rd (last)."
+}

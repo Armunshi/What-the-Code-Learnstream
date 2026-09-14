@@ -1,0 +1,19 @@
+{
+  "lane": "upl",
+  "name": "Upload pipeline",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/services/media/**",
+    "backend/src/models/uploadSession.model.js",
+    "backend/src/routes/features/uploads.routes.js",
+    "backend/src/routes/features/cloudinaryWebhook.routes.js",
+    "backend/src/routes/test/fakeMedia.routes.js",
+    "backend/src/config/uploadPolicy.js",
+    "frontend/src/features/uploads/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "uploadSession has a 7-day TTL index. /__e2e__/upload-harness only exists when VITE_E2E_HARNESS=1. Wave 1 merge order: 1st (first, since CAT/LAND/CAPT depend on it in later waves and CAT's seed needs a promo video)."
+}

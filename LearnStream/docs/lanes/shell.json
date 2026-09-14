@@ -1,0 +1,32 @@
+{
+  "lane": "shell",
+  "name": "Authoring shell, plan step, readiness, publish",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/routes/features/instructorCourses.routes.js",
+    "backend/src/routes/features/instructorLearners.routes.js",
+    "backend/src/routes/features/readiness.routes.js",
+    "backend/src/services/instructor/course.service.js",
+    "backend/src/services/readiness/index.js",
+    "backend/src/services/readiness/rules/base.rule.js",
+    "backend/src/services/readiness/rules/learners.rule.js",
+    "frontend/src/features/instructor-course/**",
+    "frontend/src/Pages/TeachersPage.jsx",
+    "frontend/src/Pages/MakeaCourse.jsx"
+  ],
+  "excludes": [
+    "frontend/src/features/instructor-course/steps/<id>/** (owned per-step by the lane that adds it)",
+    "frontend/src/features/instructor-course/content-types/<type>/** (owned per-type by the lane that adds it)",
+    "frontend/src/features/instructor-course/item-editor-panels/* (owned per-panel by the lane that adds it)"
+  ],
+  "appends": [],
+  "hostsRegistries": [
+    "frontend/src/features/instructor-course/steps/*",
+    "frontend/src/features/instructor-course/content-types/*",
+    "frontend/src/features/instructor-course/item-editor-panels/*",
+    "backend/src/services/readiness/rules/*.rule.js"
+  ],
+  "handsOffToWave1": [],
+  "notes": "Owns the authoring shell around the three registries it hosts, but never the entries lanes add to those registries. Wave 1 merge order: 8th."
+}

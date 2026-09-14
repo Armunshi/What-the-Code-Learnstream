@@ -1,0 +1,20 @@
+{
+  "lane": "res",
+  "name": "Resources and downloads",
+  "wave": 3,
+  "dependsOn": [
+    "curr",
+    "upl",
+    "learn"
+  ],
+  "owns": [
+    "backend/src/routes/features/instructorResources.routes.js",
+    "backend/src/routes/features/learnResources.routes.js",
+    "frontend/src/features/instructor-course/content-types/resource/**",
+    "frontend/src/features/instructor-course/item-editor-panels/resources/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Wave 3 merge order: 2nd."
+}

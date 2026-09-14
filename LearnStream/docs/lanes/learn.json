@@ -1,0 +1,27 @@
+{
+  "lane": "learn",
+  "name": "LMS player, progress, My Learning",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/models/watchPosition.model.js",
+    "backend/src/services/learn/**",
+    "backend/src/routes/features/learn.routes.js",
+    "backend/src/routes/features/myLearning.routes.js",
+    "backend/src/routes/test/learnCaptions.routes.js",
+    "frontend/src/features/learn/**",
+    "frontend/src/features/my-learning/**",
+    "frontend/src/Pages/LectureAssig.jsx",
+    "frontend/src/Pages/StudentPage.jsx",
+    "e2e/lib/selectors/learn.ts",
+    "e2e/tests/lecture-completion.spec.ts"
+  ],
+  "appends": [
+    "e2e/seeds/learn.seed.ts"
+  ],
+  "hostsRegistries": [
+    "frontend/src/features/learn/renderers/*"
+  ],
+  "handsOffToWave1": [],
+  "notes": "learn.seed.ts needs a 4-second video, an article, and a caption VTT. Rewrites lecture-completion.spec.ts (the two known-failing baseline tests). Wave 1 merge order: 5th."
+}

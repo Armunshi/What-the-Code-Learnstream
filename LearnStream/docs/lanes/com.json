@@ -1,0 +1,27 @@
+{
+  "lane": "com",
+  "name": "Commerce: guest cart, merge, free enrollment, checkout feedback",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/routes/features/cart.routes.js",
+    "backend/src/routes/features/enroll.routes.js",
+    "backend/src/services/enrollment.service.js",
+    "backend/src/services/payment.service.js",
+    "backend/src/controllers/Payment.controller.js",
+    "backend/src/controllers/cart.controller.js",
+    "frontend/src/Pages/Cart.jsx",
+    "frontend/src/Pages/displayRazorpay.js",
+    "frontend/src/components/AddToCartBtn.jsx",
+    "frontend/src/components/EnrollButton.jsx",
+    "frontend/src/features/commerce/**"
+  ],
+  "appends": [
+    "frontend/src/features/commerce/routes.jsx",
+    "frontend/src/features/commerce/menu.js",
+    "e2e/seeds/commerce.seed.ts"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Replaces the PurchaseCta/CartButton/useCart stub bodies (frozen signatures). commerce.seed.ts must include a free published course. Wave 1 merge order: 4th."
+}

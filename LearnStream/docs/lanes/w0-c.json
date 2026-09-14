@@ -1,0 +1,26 @@
+{
+  "lane": "w0-c",
+  "name": "Test and e2e infrastructure",
+  "wave": 0,
+  "parallelWith": [
+    "w0-a",
+    "w0-b"
+  ],
+  "dependsOn": [],
+  "owns": [
+    "e2e/playwright.config.ts",
+    "e2e/global-setup.ts",
+    "e2e/global-teardown.ts",
+    "e2e/lib/**",
+    "e2e/seeds/**",
+    "e2e/scripts/check-lane-ownership.mjs",
+    "backend/tests/setup.js",
+    "backend/tests/helpers.js"
+  ],
+  "appends": [],
+  "hostsRegistries": [
+    "e2e/seeds/*.seed.ts"
+  ],
+  "handsOffToWave1": [],
+  "notes": "Must land configurable E2E_BACKEND_PORT/E2E_FRONTEND_PORT before any worktree lane runs, otherwise parallel worktrees collide on ports 8000/2000. Writes check-lane-ownership.mjs, which every later lane's definition-of-done runs."
+}

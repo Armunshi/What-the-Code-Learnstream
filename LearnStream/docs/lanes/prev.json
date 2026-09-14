@@ -1,0 +1,17 @@
+{
+  "lane": "prev",
+  "name": "Course preview mode",
+  "wave": 2,
+  "dependsOn": [
+    "shell",
+    "cat",
+    "learn"
+  ],
+  "owns": [
+    "frontend/src/features/course-preview/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Replaces the PreviewBanner stub body (frozen signature). Wave 2 merge order: 4th (last)."
+}
