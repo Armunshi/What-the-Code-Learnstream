@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import CategoryBar from './CategoryBar'
 import CourseComp from './CourseComp'
 import axios from '../api/axios';
