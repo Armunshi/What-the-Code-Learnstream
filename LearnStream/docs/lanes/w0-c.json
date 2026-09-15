@@ -14,6 +14,7 @@
     "e2e/lib/**",
     "e2e/seeds/**",
     "e2e/scripts/check-lane-ownership.mjs",
+    "e2e/README.md",
     "backend/tests/setup.js",
     "backend/tests/helpers.js"
   ],
