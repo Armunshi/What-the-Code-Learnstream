@@ -1,34 +1,54 @@
-import fs from "fs/promises";
-import crypto from "crypto";
+import { env } from "../../../config/env.js";
+import { getFakeAsset, removeFakeAsset } from "./fakeStore.js";
 
-// Fake provider — no network call, no real Cloudinary account needed. Used
-// when MEDIA_PROVIDER=fake (config/env.js), which e2e/dev environments that
-// don't want to burn real Cloudinary quota can set. Deliberately minimal —
-// see providers/cloudinary.js's header for why this whole directory is
-// intentionally thin in Wave 0.
-const fakeUploadResult = (localFilePath) => ({
-    secure_url: `https://fake-media.test/${crypto.randomUUID()}`,
-    public_id: `fake_${crypto.randomUUID()}`,
-    resource_type: "video",
-    duration: 0,
-});
+// Fake provider — no network call, no real Cloudinary account needed
+// (D4 step 6: "Tests and e2e use MEDIA_PROVIDER=fake"). The browser still
+// does a real chunked HTTP upload, just against our own
+// routes/test/fakeMedia.routes.js instead of Cloudinary, so the frontend's
+// chunkedUpload.js needs no provider-specific branch at all — it only ever
+// looks at the uploadUrl/fields this (or the cloudinary provider's) sign()
+// hands back.
+function sign({ publicId, resourceType, isAsync }) {
+  return {
+    uploadUrl: `${fakeMediaBasePath()}/upload/${resourceType}`,
+    fields: {
+      public_id: publicId,
+      eager_async: isAsync,
+    },
+  };
+}
 
-const upload = async (localFilePath) => {
-    if (!localFilePath) return null;
-    const result = fakeUploadResult(localFilePath);
-    try {
-        await fs.unlink(localFilePath);
-    } catch {
-        // Already gone — fine, matches uploadOnCloudinary's own tolerance.
-    }
-    return result;
-};
+// routes/test/fakeMedia.routes.js mounts under E2E_TEST_ROUTES's basePath;
+// kept as a function (not a constant) so it always reflects the current
+// env at call time rather than whatever it was at module load.
+function fakeMediaBasePath() {
+  return "/__e2e__/media";
+}
 
-const uploadMany = async (filePaths) => {
-    const results = await Promise.all(filePaths.map((path) => upload(path)));
-    return results.filter(Boolean);
-};
+async function verify({ publicId }) {
+  const asset = getFakeAsset(publicId);
+  if (!asset) return { found: false, ready: false };
+  if (!asset.ready) return { found: true, ready: false };
+  return {
+    found: true,
+    ready: true,
+    bytes: asset.bytes,
+    durationSec: asset.durationSec,
+    width: asset.width,
+    height: asset.height,
+    url: asset.url,
+    hlsUrl: asset.hlsUrl,
+    posterUrl: asset.posterUrl,
+  };
+}
 
-const remove = async () => ({ result: "ok" });
+async function remove({ publicId }) {
+  removeFakeAsset(publicId);
+}
 
-export const fakeProvider = { name: "fake", upload, uploadMany, remove };
+export const fakeProvider = { name: "fake", sign, verify, remove };
+
+// Exported purely so a defensive assertion (never reached in normal
+// operation — MEDIA_PROVIDER=fake is opt-in) can confirm this module was
+// only ever meant to run outside production.
+export const isFakeProviderSafeHere = () => !env.isProduction;

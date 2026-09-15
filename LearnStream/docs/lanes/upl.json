@@ -12,8 +12,11 @@
     "backend/src/config/uploadPolicy.js",
     "frontend/src/features/uploads/**"
   ],
-  "appends": [],
+  "appends": [
+    "e2e/tests/upload-harness.spec.ts",
+    "docs/lanes/upl.json"
+  ],
   "hostsRegistries": [],
   "handsOffToWave1": [],
-  "notes": "uploadSession has a 7-day TTL index. /__e2e__/upload-harness only exists when VITE_E2E_HARNESS=1. Wave 1 merge order: 1st (first, since CAT/LAND/CAPT depend on it in later waves and CAT's seed needs a promo video)."
+  "notes": "uploadSession has a 7-day TTL index. /__e2e__/upload-harness only exists when VITE_E2E_HARNESS=1. Wave 1 merge order: 1st (first, since CAT/LAND/CAPT depend on it in later waves and CAT's seed needs a promo video). Amendment (self-declared while implementing, not landed by W0.0): every other Wave-1 lane with an e2e spec lists its exact path in owns/appends (see cat.json, learn.json, auth.json), but this manifest's appends list was empty despite the plan's D4 test list explicitly requiring harness-based e2e coverage (\"progress -> processing -> ready survives reload\", \"a forced chunk failure succeeds on Retry\") -- a manifest gap, not a deliberate omission. Backend feature tests are co-located under backend/src/services/media/__tests__/** instead, since that IS an existing owned glob and Vitest's default test.include picks up *.test.js anywhere, so no further amendment was needed there."
 }
