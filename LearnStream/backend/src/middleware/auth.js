@@ -68,3 +68,37 @@ export const requireRole = (...roles) =>
         }
         next();
     });
+
+/**
+ * Auth for endpoints that must work for guests but personalize for logged-in
+ * users (curriculum, reviews, search — docs/contracts/api-conventions.md).
+ *
+ * Deliberately NOT the same as "no auth required": a missing token is a
+ * guest and the request proceeds with `req.user` left undefined, but an
+ * INVALID or EXPIRED token still 401s exactly like verifyAuth does. That
+ * asymmetry is what keeps the frontend's refresh-token flow working — if an
+ * expired access token were silently treated as "no token" here, the
+ * frontend would never see the 401 that tells it to refresh, and would keep
+ * rendering the page as a logged-out guest instead.
+ */
+export const optionalAuth = asyncHandler(async (req, res, next) => {
+    const token = readToken(req);
+    if (!token) {
+        return next();
+    }
+
+    let decoded;
+    try {
+        decoded = jwt.verify(token, env.accessToken.secret);
+    } catch (error) {
+        throw new ApiError(401, "Unauthorized - access token is invalid or expired");
+    }
+
+    const user = await User.findById(decoded._id).select("-password -refreshToken");
+    if (!user) {
+        throw new ApiError(401, "Unauthorized - user no longer exists");
+    }
+
+    req.user = user;
+    next();
+});
