@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ApiError } from "../utils/ApiError.js";
 import { Courses } from "../models/course.model.js";
 import { Progress } from "../models/progress.model.js";
+import { CurriculumItems } from "../models/curriculumItem.model.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "./media.service.js";
 import { COURSE_STATUS } from "../config/courseLifecycle.js";
@@ -189,19 +190,31 @@ export const getCourseProgress = async ({ studentId, courseId }) => {
     );
     if (!progress) return null;
 
-    const course = await Courses.findById(courseId).select("lectures assignments");
-    if (!course || (!course.lectures && !course.assignments)) {
+    const course = await Courses.findById(courseId).select("_id");
+    if (!course) {
         throw new ApiError(404, "Encountered an error while fetching course details");
     }
 
-    const totalLectures = course.lectures?.length || 0;
-    // NOTE: always 0 — nothing ever pushes to course.assignments; assignments
-    // are only linked to their module. See BACKEND_AUDIT.md §3.13. Preserved
-    // as-is here; fixing it changes reported progress and needs its own change.
-    const totalAssignments = course.assignments?.length || 0;
+    // CurriculumItems is the source of truth for totals now, not
+    // course.lectures/course.assignments — the latter's assignment count was
+    // always 0 (nothing ever pushed to it; assignments only ever linked to
+    // their module, BACKEND_AUDIT.md §3.13), which silently made every
+    // course's progress look 100% assignment-complete before a single
+    // assignment existed. Percent is computed over "countable" item types
+    // only (video, article, quiz, assignment) — resource items never count
+    // toward completion, matching the D5 rule for Progress v2's
+    // percentComplete applied here to this legacy response shape.
+    const [totalLectures, totalAssignments] = await Promise.all([
+        CurriculumItems.countDocuments({ course: courseId, type: "video" }),
+        CurriculumItems.countDocuments({ course: courseId, type: "assignment" }),
+    ]);
+    // article/quiz item types will count here too once an authoring UI
+    // creates them — there is no such source yet, so they're always 0.
+    const totalCountable = totalLectures + totalAssignments;
+    const completedCountable = progress.completedLectures.length + progress.completedAssignments.length;
 
     return {
-        progressPercentage: totalLectures > 0 ? (progress.completedLectureCount / totalLectures) * 100 : 0,
+        progressPercentage: totalCountable > 0 ? (completedCountable / totalCountable) * 100 : 0,
         completedLecturesCount: progress.completedLectures.length,
         completedAssignmentsCount: progress.completedAssignments.length,
         totalLectures,

@@ -16,6 +16,7 @@ import {
 
 import { upload } from "../../middleware/multer.middleware.js";
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";
+import { requireEnrollment } from "../../middleware/requireEnrollment.js";
 import { addToCart, getCart, inCart, removeFromCart } from "../../controllers/Courses/cart.controller.js";
 const router = Router();
 
@@ -36,7 +37,12 @@ router.route('/').post(verifyAuth, requireRole(ROLES.TEACHER), upload.single('th
 //  Dynamic Routes NEXT (Keep These At Bottom)
 router.route('/:courseId/getTeacher').get(getCourseOwner);
 router.route('/:courseId/enrolled').get(verifyAuth, checkEnrollment);
-router.route('/:courseId/progress').get(verifyAuth, CourseProgress);
+// Previously just verifyAuth — any authenticated caller, enrolled or not,
+// got an answer (silently "0%" instead of a 403) rather than a signal that
+// they aren't entitled to this course's progress at all (BACKEND_AUDIT.md-
+// style gap, closed here the same way markLectureCompleted/
+// markAssignmentCompleted already guard their own routes below).
+router.route('/:courseId/progress').get(verifyAuth, requireRole(ROLES.STUDENT), requireEnrollment('course'), CourseProgress);
 router.route('/:courseId/students').get(verifyAuth, requireRole(ROLES.TEACHER), requireCourseOwner('course'), getEnrolledStudents);
 router.route('/:courseId').get(getCourseById); // LAST
 
