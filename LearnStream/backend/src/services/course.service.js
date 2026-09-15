@@ -6,13 +6,28 @@ import { CurriculumItems } from "../models/curriculumItem.model.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "./media.service.js";
 import { MEDIA_STATUS } from "../models/schemas/media.schema.js";
-// The NEW, provider-switchable upload path (respects MEDIA_PROVIDER=fake for
-// tests/e2e — see services/media/index.js), used only for the promo video
-// below. The thumbnail keeps using the legacy media.service.js import above
-// unchanged, so existing thumbnail-upload behavior doesn't shift as a side
-// effect of adding promo-video support.
-import { uploadOnCloudinary as uploadPromoVideo, mediaProvider } from "./media/index.js";
 import { COURSE_STATUS, canTransition } from "../config/courseLifecycle.js";
+import { env } from "../config/env.js";
+
+// UPL's real services/media/index.js (built after this file was first
+// written against Wave 0's placeholder) turned out to be a sign/verify/remove
+// abstraction for direct-browser-to-Cloudinary uploads, not a "give it a
+// local path, get a hosted URL back" helper — the two upload models are
+// architecturally different, and UPL never built the latter (D4 is
+// deliberately browser-direct). This local wrapper is what createCourse
+// actually needs: a synchronous local-file upload that still respects
+// MEDIA_PROVIDER=fake for e2e, without depending on UPL's async flow or
+// touching services/media/** (owned by that lane, not this one).
+async function uploadPromoVideo(localFilePath) {
+    if (env.media.provider === "fake") {
+        return {
+            secure_url: `https://fake-media.test/promo/${Date.now()}.mp4`,
+            public_id: `fake_promo_${Date.now()}`,
+            duration: 0,
+        };
+    }
+    return uploadOnCloudinary(localFilePath);
+}
 
 // Matches the schema's own limits (course.model.js: title maxlength 60) so a
 // too-long title 400s in the frozen { message, errors: [{ field, code }] }
@@ -96,7 +111,7 @@ export const createCourse = async (
         const uploaded = await uploadPromoVideo(promoVideoLocalPath);
         if (uploaded?.secure_url) {
             promoVideo = {
-                provider: mediaProvider.name,
+                provider: env.media.provider,
                 publicId: uploaded.public_id,
                 status: MEDIA_STATUS.READY,
                 statusChangedAt: new Date(),
