@@ -24,8 +24,10 @@ export function formatCount(value) {
 }
 
 // Compact form for tight spaces (card badges, stat tiles), e.g.
-// 56145 -> "56.1K", 1200000 -> "1.2M". Falls back to the plain count below
-// 1,000 so small numbers aren't compacted into something less readable.
+// 56145 -> "56.1K", 1200000 -> "12L" (en-IN compact notation switches to
+// lakh/crore above 100,000, matching how those figures are actually read on
+// an India-focused platform). Falls back to the plain count below 1,000 so
+// small numbers aren't compacted into something less readable.
 export function formatCompactNumber(value) {
   const number = Number(value) || 0;
   if (Math.abs(number) < 1000) return formatCount(number);
