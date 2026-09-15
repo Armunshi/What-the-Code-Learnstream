@@ -5,6 +5,22 @@
 const MAX_CHUNK_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 500;
 
+/**
+ * providers/fake.js signs a root-relative uploadUrl ("/__e2e__/media/upload/
+ * video") — it has no backend origin to put there, since it's the SAME
+ * module whether the backend is running on :8000 or an e2e run's :8109.
+ * The real Cloudinary provider always signs a fully-qualified
+ * https://api.cloudinary.com/... URL, so this only ever rewrites the fake
+ * one. Resolving it here (rather than in providers/fake.js) keeps the
+ * backend provider free of any notion of where the FRONTEND thinks the
+ * backend lives — privateClient.js's own VITE_BACKEND_URL is that answer.
+ */
+function resolveUploadUrl(uploadUrl) {
+  if (/^https?:\/\//i.test(uploadUrl)) return uploadUrl;
+  const base = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+  return `${base.replace(/\/$/, '')}${uploadUrl}`;
+}
+
 function randomUploadId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   // jsdom/older browsers: good enough for a per-upload correlation id, which
@@ -155,11 +171,13 @@ export async function chunkedUpload({ file, courseId, target, signed, onProgress
   persist(start);
   onProgress?.(start / total);
 
+  const uploadUrl = resolveUploadUrl(signed.uploadUrl);
+
   while (start < total) {
     const end = Math.min(start + signed.chunkSizeBytes, total) - 1;
     const chunk = file.slice(start, end + 1);
     await uploadOneChunk({
-      uploadUrl: signed.uploadUrl,
+      uploadUrl,
       fields: signed.fields,
       uploadId: uniqueUploadId,
       chunk,

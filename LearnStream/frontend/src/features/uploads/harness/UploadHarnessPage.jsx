@@ -42,12 +42,12 @@ export function UploadHarnessPage() {
         Force the next chunk upload to fail
       </label>
 
-      <section>
+      <section data-testid="promo-video-section">
         <h2 className="mb-2 text-sm font-medium">course-promo (async / video)</h2>
         <MediaUploadField courseId={courseId} target={{ kind: 'course-promo' }} label="Upload a promo video" />
       </section>
 
-      <section>
+      <section data-testid="thumbnail-section">
         <h2 className="mb-2 text-sm font-medium">course-thumbnail (sync / image)</h2>
         <ImageUploadField courseId={courseId} target={{ kind: 'course-thumbnail' }} label="Upload a thumbnail" />
       </section>
