@@ -18,7 +18,6 @@ export class OutletErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    // eslint-disable-next-line no-console
     console.error('[OutletErrorBoundary]', error, info);
   }
 

@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }) => {
         setAuth(authFromToken(accessToken, role));
         tokenStore.setToken(accessToken);
         setStatus('authenticated');
-      } catch (err) {
+      } catch {
         console.log("No valid refresh token found.");
         setAuth({}); // empty auth
         tokenStore.clearToken();
