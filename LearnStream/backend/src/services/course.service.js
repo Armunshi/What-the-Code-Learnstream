@@ -5,7 +5,14 @@ import { Progress } from "../models/progress.model.js";
 import { CurriculumItems } from "../models/curriculumItem.model.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "./media.service.js";
-import { COURSE_STATUS } from "../config/courseLifecycle.js";
+import { MEDIA_STATUS } from "../models/schemas/media.schema.js";
+// The NEW, provider-switchable upload path (respects MEDIA_PROVIDER=fake for
+// tests/e2e — see services/media/index.js), used only for the promo video
+// below. The thumbnail keeps using the legacy media.service.js import above
+// unchanged, so existing thumbnail-upload behavior doesn't shift as a side
+// effect of adding promo-video support.
+import { uploadOnCloudinary as uploadPromoVideo, mediaProvider } from "./media/index.js";
+import { COURSE_STATUS, canTransition } from "../config/courseLifecycle.js";
 
 // Matches the schema's own limits (course.model.js: title maxlength 60) so a
 // too-long title 400s in the frozen { message, errors: [{ field, code }] }
@@ -43,7 +50,10 @@ export const visibleCourseFilter = (viewer) => {
     return { $or: [{ status: COURSE_STATUS.PUBLISHED }, { enrolledStudents: viewer._id }] };
 };
 
-export const createCourse = async (teacherId, { title, description, price, category, isLive, thumbnailLocalPath }) => {
+export const createCourse = async (
+    teacherId,
+    { title, description, price, category, isLive, thumbnailLocalPath, promoVideoLocalPath }
+) => {
     const parsed = courseInputSchema.safeParse({ title, description, category });
     if (!parsed.success) {
         const errors = parsed.error.issues.map((issue) => ({
@@ -75,6 +85,28 @@ export const createCourse = async (teacherId, { title, description, price, categ
         throw new ApiError(400, "thumbnail must be there");
     }
 
+    // Optional at creation time — most authoring flows will add this later
+    // through the (not-yet-built) instructor upload pipeline (D4, UPL).
+    // Accepting it here too lets a course be created already carrying a
+    // playable promo video in one step, which is what CAT's own e2e catalog
+    // seed needs (a guest-visible landing page with a real trailer) ahead of
+    // that pipeline landing.
+    let promoVideo;
+    if (promoVideoLocalPath) {
+        const uploaded = await uploadPromoVideo(promoVideoLocalPath);
+        if (uploaded?.secure_url) {
+            promoVideo = {
+                provider: mediaProvider.name,
+                publicId: uploaded.public_id,
+                status: MEDIA_STATUS.READY,
+                statusChangedAt: new Date(),
+                durationSec: uploaded.duration ?? 0,
+                mp4Url: uploaded.secure_url,
+                posterUrl: thumbnail.secure_url,
+            };
+        }
+    }
+
     const course = await Courses.create({
         thumbnail: thumbnail.secure_url,
         title,
@@ -83,6 +115,7 @@ export const createCourse = async (teacherId, { title, description, price, categ
         author: teacherId,
         category,
         isLive,
+        ...(promoVideo ? { promoVideo } : {}),
     });
 
     const teacher = await User.findByIdAndUpdate(
@@ -176,6 +209,31 @@ export const getCourseOwner = async (courseId) => {
     const owner = await Courses.findById(courseId).select("author");
     if (!owner) throw new ApiError(404, "Course not found");
     return owner;
+};
+
+/**
+ * DRAFT <-> PUBLISHED transition (D2). No dedicated authoring "publish" flow
+ * exists yet (that's W1-SHELL's readiness/publish step, a sibling Wave 1
+ * lane not available in this worktree) — this is the minimal endpoint that
+ * lets the owning teacher flip a course's status at all, reusing
+ * courseLifecycle.js's own `canTransition` guard rather than inventing a
+ * parallel rule. It's also what makes CAT's own e2e catalog seed (and any
+ * guest-facing manual check) possible: a freshly created course starts
+ * DRAFT, and only a PUBLISHED course is visible to a guest at all (D2).
+ * SHELL can layer readiness checks on top of this later; the transition
+ * rule itself doesn't change.
+ */
+export const updateCourseStatus = async (course, nextStatus) => {
+    if (!canTransition(course.status, nextStatus)) {
+        throw new ApiError(400, `Cannot transition a course from ${course.status} to ${nextStatus}`);
+    }
+
+    course.status = nextStatus;
+    if (nextStatus === COURSE_STATUS.PUBLISHED && !course.publishedAt) {
+        course.publishedAt = new Date();
+    }
+    await course.save();
+    return course;
 };
 
 /**

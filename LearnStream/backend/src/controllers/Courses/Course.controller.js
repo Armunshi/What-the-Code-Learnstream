@@ -10,10 +10,14 @@ const createCourse = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Basic info about the course required");
     }
 
-    const thumbnailLocalPath = req.file?.path;
+    // Two named fields now (upload.fields in courses.routes.js), not a
+    // single unnamed file — thumbnail is still required, promoVideo is
+    // optional (see course.service.js's createCourse).
+    const thumbnailLocalPath = req.files?.thumbnail?.[0]?.path;
     if (!thumbnailLocalPath) {
         throw new ApiError(400, "thumbnail file is required");
     }
+    const promoVideoLocalPath = req.files?.promoVideo?.[0]?.path;
 
     const course = await courseService.createCourse(req.user._id, {
         title,
@@ -22,6 +26,7 @@ const createCourse = asyncHandler(async (req, res) => {
         category,
         isLive,
         thumbnailLocalPath,
+        promoVideoLocalPath,
     });
 
     return res.status(200).json(new ApiResponse(200, course, "created course successfully"));
@@ -114,6 +119,16 @@ const getCourseOwner = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, owner, "Owner fetched successfully"));
 });
 
+const updateCourseStatus = asyncHandler(async (req, res) => {
+    // req.course was resolved and ownership-checked by requireCourseOwner('course').
+    const { status } = req.body;
+    if (!status) throw new ApiError(400, "status is required");
+
+    const course = await courseService.updateCourseStatus(req.course, status);
+
+    return res.status(200).json(new ApiResponse(200, course, "Course status updated successfully"));
+});
+
 export {
     createCourse,
     getCoursesByCategory,
@@ -124,5 +139,6 @@ export {
     getEnrolledStudents,
     checkEnrollment,
     getCourseByTeacherId,
-    getCourseOwner
+    getCourseOwner,
+    updateCourseStatus
 }
