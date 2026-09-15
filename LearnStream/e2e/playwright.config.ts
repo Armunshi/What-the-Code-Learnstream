@@ -29,19 +29,35 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  // Starts the Vite dev server for this run instead of requiring it to be
-  // started manually beforehand. --strictPort makes Vite fail fast when
-  // E2E_FRONTEND_PORT is already taken rather than silently binding a
-  // different port, which would otherwise produce confusing "frontend
-  // unreachable" failures instead of a clear port-conflict error.
-  // VITE_BACKEND_URL points the frontend's own API client at the backend
-  // instance global-setup.ts spawns on E2E_BACKEND_PORT for this same run.
+  // Builds once and serves the static build via `vite preview` instead of
+  // running `vite dev`, so this run doesn't depend on HMR/Fast-Refresh
+  // timing at all. `vite dev` runs React in development mode, where
+  // StrictMode double-invokes effects (confirmed via captured network logs:
+  // AuthProvider's refresh-on-mount fired twice per navigation under `vite
+  // dev`, once under `vite preview`) — a real source of extra requests this
+  // suite shouldn't have to account for. This does NOT fix every failure
+  // seen against the current backend; see README.md "Current state" for a
+  // separate, pre-existing rate-limiter issue this surfaced but didn't
+  // cause (reproduces identically with a manually pre-started `vite dev`
+  // server too, i.e. today's original documented workflow).
+  // --strictPort makes the preview server fail fast when E2E_FRONTEND_PORT
+  // is already taken rather than silently binding a different one, which
+  // would otherwise produce confusing "frontend unreachable" failures
+  // instead of a clear port-conflict error. VITE_BACKEND_URL must be present
+  // for the build step too (Vite inlines VITE_-prefixed vars at build time,
+  // not read at request time like `vite dev` does), which is why it's set
+  // once here and applies to the whole command, build and preview alike.
+  // Invoked via `npx vite ...` rather than `npm run build`/`npm run preview`
+  // deliberately: frontend/package.json (owned by another lane, not this
+  // one) has no "build" script today, only "dev" and "preview".
   webServer: {
-    command: `npm run dev -- --port ${E2E_FRONTEND_PORT} --strictPort`,
+    command: `npx vite build && npx vite preview --port ${E2E_FRONTEND_PORT} --strictPort`,
     cwd: FRONTEND_DIR,
     url: FRONTEND_URL,
+    // Local reruns reuse an already-running preview server instead of
+    // rebuilding every time; CI always starts fresh.
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: 120_000, // a cold `vite build` is slower than `vite dev` ever was to become ready
     env: {
       ...process.env,
       VITE_BACKEND_URL: BACKEND_URL,
