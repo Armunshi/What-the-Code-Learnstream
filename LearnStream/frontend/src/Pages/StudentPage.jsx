@@ -1,6 +1,6 @@
 
-import React, { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from "react";
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import axios from "../api/axios";
 
 import CourseComp from "../components/CourseComp";
@@ -8,34 +8,14 @@ import GeneralCourses from "../components/GeneralCourses";
 import { useContext } from "react";
 import AuthContext from "../contexts/AuthProvider";
 
-const videos = [
-    {
-      id: 1,
-      title: "Advanced React",
-      src: "/assets/videos/video2.mp4", // Update with your actual local file path
-    },
-    {
-      id: 2,
-      title: "Advanced JavaScript",
-      src: "/assets/videos/video2.mp4", // Update with your actual local file path
-    },
-  ];
-  
   const Student = () => {
     const { user_id } = useParams();
-    const location = useLocation();
-    const {auth, setAuth } = useContext(AuthContext);
-    
+    const {auth } = useContext(AuthContext);
     const errRef = useRef();
-    const [course_id,setCourse_id] = useState(''); 
+    const [, setCourse_id] = useState('');
     const [errMsg, setErrMsg] = useState('');
     const [studentcourses,setStudentCourses] = useState([])
-    
-    const [enrolled,setEnrolled] = useState(`Enroll`)
-    // const viewCourse = async (course_id)=>{
-      
-    // }
-    
+
       useEffect(() => {
               setErrMsg('');
           }, [user_id])
@@ -73,8 +53,19 @@ const videos = [
   const viewCourse = (course_id)=>{
     navigate(`/user/${course_id}`)
   }
+
+    // This page's "My Learning" section is superseded by the new
+    // /my-learning page (features/my-learning) — router.jsx wraps this
+    // route in LegacyUserRoute without a `to` mapping (that file is frozen,
+    // not owned by this lane), so the redirect is done here instead, inside
+    // the one file this lane does own for this route. Placed after every
+    // hook call above so it never changes the hooks called between renders.
+    if (auth?.role === 'student') {
+      return <Navigate to="/my-learning" replace />;
+    }
+
     return (
-      
+
       <div>
         
         <div className="bg-black text-center text-xl font-semibold relative w-full h-[500px]">
