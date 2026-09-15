@@ -13,14 +13,19 @@
     "backend/src/services/readiness/rules/learners.rule.js",
     "frontend/src/features/instructor-course/**",
     "frontend/src/Pages/TeachersPage.jsx",
-    "frontend/src/Pages/MakeaCourse.jsx"
+    "frontend/src/Pages/MakeaCourse.jsx",
+    "docs/lanes/shell.json"
   ],
   "excludes": [
     "frontend/src/features/instructor-course/steps/<id>/** (owned per-step by the lane that adds it)",
     "frontend/src/features/instructor-course/content-types/<type>/** (owned per-type by the lane that adds it)",
     "frontend/src/features/instructor-course/item-editor-panels/* (owned per-panel by the lane that adds it)"
   ],
-  "appends": [],
+  "appends": [
+    "backend/tests/features/instructor-*.test.js",
+    "e2e/tests/authoring-shell.spec.ts",
+    "e2e/lib/api/shell.ts"
+  ],
   "hostsRegistries": [
     "frontend/src/features/instructor-course/steps/*",
     "frontend/src/features/instructor-course/content-types/*",
@@ -28,5 +33,5 @@
     "backend/src/services/readiness/rules/*.rule.js"
   ],
   "handsOffToWave1": [],
-  "notes": "Owns the authoring shell around the three registries it hosts, but never the entries lanes add to those registries. Wave 1 merge order: 8th."
+  "notes": "Owns the authoring shell around the three registries it hosts, but never the entries lanes add to those registries. Wave 1 merge order: 8th. w1.0-amendment (this lane): the original manifest had no glob for this lane's own test files (no backend/tests/** or e2e/** entry at all — a gap every Wave 1 lane's manifest shares, not specific to SHELL). Added `docs/lanes/shell.json` to owns (so this amendment itself is in-manifest) and three narrow appends for the backend unit tests, the e2e spec, and its lane-scoped selector helpers required by this lane's definition of done."
 }
