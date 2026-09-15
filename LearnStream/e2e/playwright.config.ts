@@ -61,6 +61,13 @@ export default defineConfig({
     env: {
       ...process.env,
       VITE_BACKEND_URL: BACKEND_URL,
+      // UPL's /__e2e__/upload-harness page (frontend/src/features/uploads/routes.jsx)
+      // only exists in a build started with this set — the same "test-only
+      // route, always on for the e2e build" posture as the backend's
+      // MEDIA_PROVIDER=fake and E2E_TEST_ROUTES=1 above. Vite inlines
+      // VITE_-prefixed vars at build time, so this has to be present for
+      // the `vite build` half of the command, not just `vite preview`.
+      VITE_E2E_HARNESS: '1',
     },
   },
   projects: [

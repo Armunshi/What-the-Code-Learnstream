@@ -42,12 +42,16 @@ test.describe('App shell', () => {
   });
 
   test('a public catalog call never carries an Authorization header', async ({ page, networkLogger }) => {
+    // Was /courses/getallCourses (the legacy homepage) — CAT's real
+    // HomePage (Wave 1) calls the new GET /courses/catalog instead. The
+    // property under test (a guest-facing homepage call never attaches
+    // Authorization) is unchanged; only the endpoint it goes through is.
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const publicCalls = networkLogger
       .getEntries()
-      .filter((entry) => entry.url.includes('/courses/getallCourses'));
+      .filter((entry) => entry.url.includes('/courses/catalog'));
     expect(publicCalls.length).toBeGreaterThanOrEqual(1);
 
     // The network logger doesn't capture request headers itself, so this
@@ -55,7 +59,7 @@ test.describe('App shell', () => {
     // directly — reloading is cheap and keeps the assertion exact instead
     // of guessing from the logger's summary shape.
     const [request] = await Promise.all([
-      page.waitForRequest((req) => req.url().includes('/courses/getallCourses')),
+      page.waitForRequest((req) => req.url().includes('/courses/catalog')),
       page.reload(),
     ]);
     const headers = request.headers();
