@@ -23,11 +23,23 @@ const baseOptions = {
   timestamps: true,
 };
 
+// `type` is deliberately NOT declared as a field below even though it's a
+// real, queried column — it's the discriminatorKey (baseOptions above), and
+// Mongoose already adds that path to the schema automatically. Redeclaring
+// it manually alongside `discriminatorKey: "type"` puts two competing
+// definitions of the same path in play: a write through the base
+// CurriculumItems model (as opposed to a specific discriminator model like
+// VideoItem) silently drops the field entirely instead of casting or
+// validating it — confirmed by a $setOnInsert of `type: "video"` via the
+// base model never actually landing in the stored document. Discriminator
+// models (VideoItem.create()/.findOneAndUpdate(), etc.) set it correctly on
+// their own by merging it into every filter and insert; anywhere generic
+// code needs to filter or read it, `type` is a plain string on the stored
+// document regardless of how it got there.
 const curriculumItemSchema = new Schema(
   {
     course: { type: Schema.Types.ObjectId, ref: "Courses", required: true },
     section: { type: Schema.Types.ObjectId, ref: "Sections", required: true },
-    type: { type: String, required: true, enum: CURRICULUM_ITEM_TYPES },
     title: { type: String, required: true, maxlength: 80 },
     description: { type: String },
     order: { type: Number, required: true, default: 0 },

@@ -4,6 +4,7 @@ import { Assignments } from "../models/assignment.model.js";
 import { Modules } from "../models/module.model.js";
 import { Progress } from "../models/progress.model.js";
 import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary } from "./media.service.js";
+import { upsertAssignmentItem, removeItem } from "./curriculum/sync.js";
 
 export const createAssignment = async (course, module, { title, deadline, files }) => {
     const existing = await Assignments.findOne({
@@ -46,6 +47,13 @@ export const createAssignment = async (course, module, { title, deadline, files 
     }
 
     await Promise.allSettled(filePaths.map((path) => fs.unlink(path)));
+
+    // Mirrors this write into CurriculumItems (D1), under the SAME _id as the
+    // Assignments document — see services/curriculum/sync.js. Submissions
+    // keep living on the Assignments document itself (unchanged per the
+    // contract: "existing collection and submissions stay as-is"); only a
+    // thin CurriculumItems pointer to it is created here.
+    await upsertAssignmentItem({ assignment, course, module });
 
     return Assignments.findById(assignment._id).select("_id public_id deadline title");
 };
@@ -131,6 +139,7 @@ export const deleteAssignmentWithMedia = async (course, module, assignment) => {
     await module.save();
 
     await Assignments.findByIdAndDelete(assignment._id);
+    await removeItem({ itemId: assignment._id, courseId: course._id });
 };
 
 /**

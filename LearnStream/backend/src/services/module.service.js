@@ -4,10 +4,15 @@ import { Courses } from "../models/course.model.js";
 import { Lectures } from "../models/lecture.model.js";
 import { Modules } from "../models/module.model.js";
 import { deleteMediaFromCloudinary } from "./media.service.js";
+import { removeItemsForSection } from "./curriculum/sync.js";
 
-/** Creates a module under `course` and links it from the course. */
+/** Creates a module (D1: a "section") under `course` and links it from the course. */
 export const createModule = async (course, { title, description }) => {
-    const module = await Modules.create({ title, description, course: course._id });
+    // Explicit, dense `order` (C-NFR-4) from position among the course's
+    // existing sections — Sections.order has no other writer for
+    // newly-created sections until the CURR lane's reorder endpoint lands.
+    const order = await Modules.countDocuments({ course: course._id });
+    const module = await Modules.create({ title, description, course: course._id, order });
 
     course.modules.push(module._id);
     await course.save();
@@ -58,6 +63,10 @@ export const deleteModuleWithContent = async (course, module) => {
 
     await Lectures.deleteMany({ _id: { $in: lectureIds } });
     await Assignments.deleteMany({ _id: { $in: assignmentIds } });
+    // Mirrors the cascade into CurriculumItems (D1) — every video/assignment
+    // item whose `section` is this module, and recomputes stats afterward so
+    // a deleted section's content stops counting toward the course totals.
+    await removeItemsForSection({ sectionId: populated._id, courseId: course._id });
 
     const lectureIdSet = new Set(lectureIds.map(String));
     const assignmentIdSet = new Set(assignmentIds.map(String));
