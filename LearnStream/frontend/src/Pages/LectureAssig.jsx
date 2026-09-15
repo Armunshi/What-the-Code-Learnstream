@@ -1,7 +1,7 @@
 import { useLocation } from "react-router-dom";
 import ReactPlayer from "react-player";
 import { Play } from "lucide-react";
-import { useEffect, useState,  } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card } from "flowbite-react";
 import axios from "../api/axios.js";
 import PDFPreviewModal from "../components/PDFPreviewModal.jsx";
@@ -21,6 +21,18 @@ const LectureAssig = () => {
   const [selectedPdfUrl, setSelectedPdfUrl] = useState(null);
   const [selectedDiv, setSelectedDiv] = useState(null);
   const [assignmentDeadline, setAssignmentDeadline] = useState(null);
+
+  // Read synchronously inside handleSelectLecture instead of the
+  // `completedLectures` state closure, and set *before* the first `await`,
+  // so two click events dispatched back-to-back (see below) both see the
+  // guard update from whichever ran first, rather than both reading the
+  // same stale "not completed yet" snapshot.
+  const completedLecturesRef = useRef({});
+  const pendingCompletionsRef = useRef(new Set());
+
+  useEffect(() => {
+    completedLecturesRef.current = completedLectures;
+  }, [completedLectures]);
 
   useEffect(() => {
     const fetchCompletedLectures = async () => {
@@ -52,18 +64,25 @@ const LectureAssig = () => {
       `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/video/upload/${lecture.public_id}.mp4`
     );
 
-    // ✅ If lecture is not already marked completed, mark it now
-    if (!completedLectures[lecture._id]) {
-      try {
-        await axios.post(`/courses/${course_id}/lectures/${lecture._id}/complete`, {
-          lectureId: lecture._id,
-        });
+    // Guard against both the label/checkbox double-dispatch (fixed below,
+    // at the input's own onClick) and a rapid double-click racing ahead of
+    // the completed-state update: this check-and-mark-pending runs
+    // synchronously, before the first `await`, so the second of two
+    // back-to-back calls always sees the first one's pending flag.
+    if (completedLecturesRef.current[lecture._id] || pendingCompletionsRef.current.has(lecture._id)) {
+      return;
+    }
+    pendingCompletionsRef.current.add(lecture._id);
+    try {
+      await axios.post(`/courses/${course_id}/lectures/${lecture._id}/complete`, {
+        lectureId: lecture._id,
+      });
 
-        // ✅ Update the checkbox state immediately
-        setCompletedLectures((prev) => ({ ...prev, [lecture._id]: true }));
-      } catch (error) {
-        console.error("Error marking lecture as completed:", error);
-      }
+      setCompletedLectures((prev) => ({ ...prev, [lecture._id]: true }));
+    } catch (error) {
+      console.error("Error marking lecture as completed:", error);
+    } finally {
+      pendingCompletionsRef.current.delete(lecture._id);
     }
   };
 
@@ -105,9 +124,19 @@ const LectureAssig = () => {
                   onClick={() => handleSelectLecture(lecture)}
                 >
                   <label className="flex items-center gap-2 cursor-pointer">
+                    {/* A <label> wrapping a form control forwards a second,
+                        synthetic click event to that control, which bubbles
+                        up through the label to this Card's onClick just
+                        like the original click did — so every physical
+                        click on this row fired handleSelectLecture twice.
+                        Stopping propagation here, at the forwarded click's
+                        actual target, neutralizes only that synthetic
+                        event; the original click on the label/span still
+                        bubbles up normally and fires the handler once. */}
                     <input
                       type="checkbox"
                       checked={!!completedLectures[lecture._id]}
+                      onClick={(e) => e.stopPropagation()}
                       readOnly
                     />
                     <span>{lecture.title} <Play /></span>

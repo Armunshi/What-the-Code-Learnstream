@@ -10,7 +10,7 @@ test.beforeEach(async ({ page, testData }) => {
 // running in file order against the same two seeded lectures.
 
 test.describe('Marking a Lecture Complete', () => {
-  test('one real user click marks the lecture complete — but the checkbox+label markup double-fires it, see finding below', async ({
+  test('one real user click marks the lecture complete with exactly one POST', async ({
     page,
     networkLogger,
     testData,
@@ -33,17 +33,14 @@ test.describe('Marking a Lecture Complete', () => {
     expect(response.status()).toBe(200);
     await expect(checkbox).toBeChecked();
 
-    // Documented finding, confirmed live: this fires TWO identical POSTs
-    // from one Playwright .click() (a single physical user click), not
-    // just under the rapid-double-click scenario below. Root cause is a
-    // browser standard, not a race: LectureAssig.jsx's checkbox <input> is
-    // nested inside a <label> that is itself inside the clickable Card.
-    // Clicking anywhere in a <label> that wraps a form control forwards a
-    // synthetic click to that control too, and that forwarded click also
-    // bubbles up to the Card's onClick — so every single click on this
-    // element fires handleSelectLecture twice. Worth its own UI_AUDIT.md
-    // entry: move the checkbox out of the label, or stop nesting the
-    // clickable area around it, and this collapses to the expected 1.
+    // LectureAssig.jsx's checkbox <input> is nested inside a <label>, which
+    // is itself inside the clickable Card — clicking anywhere in a <label>
+    // that wraps a form control makes the browser forward a second,
+    // synthetic click to that control, and that forwarded click also
+    // bubbles up to the Card's onClick. Fixed by stopping propagation on
+    // the input's own onClick, so only the original click (on the label or
+    // its text) reaches the Card and fires handleSelectLecture — exactly
+    // one POST per physical click.
     const completeCalls = networkLogger
       .getEntries()
       .filter((e) => e.url.includes(`/lectures/${testData.lectureId}/complete`));
@@ -74,7 +71,7 @@ test.describe('Marking a Lecture Complete', () => {
     expect(completeCalls).toHaveLength(0);
   });
 
-  test('rapid double-click compounds the same bug further — regression for LectureAssig.jsx:48-68', async ({
+  test('rapid double-click does not compound into extra POSTs', async ({
     page,
     networkLogger,
     testData,
@@ -94,10 +91,12 @@ test.describe('Marking a Lecture Complete', () => {
       .getEntries()
       .filter((e) => e.url.includes(`/lectures/${testData.lecture2Id}/complete`));
 
-    // Expected to fail, and worse than the single-click test above: the
-    // label/checkbox double-fire (2x) compounds with two real clicks (2x)
-    // and the missing in-flight guard doesn't collapse any of it, so up to
-    // 4 POSTs can land for what a user experiences as "I clicked twice."
+    // Two physical clicks, each now single-dispatching (the label/checkbox
+    // fix above), still race two calls to handleSelectLecture against the
+    // same async completion POST. The synchronous pendingCompletionsRef
+    // guard — set before the first `await`, so the second call sees it
+    // immediately rather than reading a stale "not completed yet" state
+    // snapshot — collapses that down to exactly one POST.
     expect(completeCalls).toHaveLength(1);
 
     const duplicates = findDuplicatePosts(networkLogger.getEntries(), /\/complete$/);
