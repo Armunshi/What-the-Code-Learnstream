@@ -23,8 +23,7 @@
   ],
   "appends": [
     "backend/tests/features/instructor-*.test.js",
-    "e2e/tests/authoring-shell.spec.ts",
-    "e2e/lib/api/shell.ts"
+    "e2e/tests/authoring-shell.spec.ts"
   ],
   "hostsRegistries": [
     "frontend/src/features/instructor-course/steps/*",
@@ -33,5 +32,5 @@
     "backend/src/services/readiness/rules/*.rule.js"
   ],
   "handsOffToWave1": [],
-  "notes": "Owns the authoring shell around the three registries it hosts, but never the entries lanes add to those registries. Wave 1 merge order: 8th. w1.0-amendment (this lane): the original manifest had no glob for this lane's own test files (no backend/tests/** or e2e/** entry at all — a gap every Wave 1 lane's manifest shares, not specific to SHELL). Added `docs/lanes/shell.json` to owns (so this amendment itself is in-manifest) and three narrow appends for the backend unit tests, the e2e spec, and its lane-scoped selector helpers required by this lane's definition of done."
+  "notes": "Owns the authoring shell around the three registries it hosts, but never the entries lanes add to those registries. Wave 1 merge order: 8th. w1.0-amendment (this lane): the original manifest had no glob for this lane's own test files (no backend/tests/** or e2e/** entry at all — a gap every Wave 1 lane's manifest shares, not specific to SHELL). Added `docs/lanes/shell.json` to owns (so this amendment itself is in-manifest) and two narrow appends for the backend unit tests and the e2e spec required by this lane's definition of done."
 }
