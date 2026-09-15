@@ -42,6 +42,7 @@ export const courseResolvers = {
         if (!module) throw new ApiError(404, "Module not found");
         const course = await Courses.findById(module.course);
         if (!course) throw new ApiError(404, "Course not found");
+        assertUrlMatchesResolvedParents(req, { module, course });
         return { module, course };
     },
 
@@ -54,6 +55,7 @@ export const courseResolvers = {
         if (!module) throw new ApiError(404, "Module not found");
         const course = await Courses.findById(module.course);
         if (!course) throw new ApiError(404, "Course not found");
+        assertUrlMatchesResolvedParents(req, { module, course });
         return { lecture, module, course };
     },
 
@@ -66,9 +68,37 @@ export const courseResolvers = {
         if (!module) throw new ApiError(404, "Module not found");
         const course = await Courses.findById(module.course);
         if (!course) throw new ApiError(404, "Course not found");
+        assertUrlMatchesResolvedParents(req, { module, course });
         return { assignment, module, course };
     },
 };
+
+/**
+ * The lecture/assignment resolvers above deliberately derive `module` and
+ * `course` by walking UP from the resource itself (lecture.module_id ->
+ * module.course), never from the :course_id/:moduleId segments in the URL —
+ * that's what makes ownership checks correct regardless of what the URL
+ * claims. But that also means, on its own, the URL's course_id/moduleId are
+ * never actually checked against anything: a request naming one course/
+ * module in the path while addressing a lecture that actually belongs to a
+ * DIFFERENT one silently succeeds against the real parent, with no signal
+ * that the caller's URL was wrong about which section/course the resource
+ * lives in. Verifying membership here (whenever the URL happens to carry
+ * those segments) closes that gap on every mutation that goes through
+ * requireCourseOwner/requireEnrollment, without each service needing its own
+ * copy of this check.
+ */
+function assertUrlMatchesResolvedParents(req, { module, course }) {
+    const urlModuleId = param(req, "module_id", "moduleId");
+    if (urlModuleId && urlModuleId !== module._id.toString()) {
+        throw new ApiError(404, "This resource does not belong to the section named in the URL");
+    }
+
+    const urlCourseId = param(req, "course_id", "courseId");
+    if (urlCourseId && urlCourseId !== course._id.toString()) {
+        throw new ApiError(404, "This resource does not belong to the course named in the URL");
+    }
+}
 
 /** Picks a resolver, failing at import time rather than on the first request. */
 export const resolverFor = (guardName, from) => {

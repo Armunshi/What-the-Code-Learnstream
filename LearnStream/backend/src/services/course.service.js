@@ -1,9 +1,21 @@
+import { z } from "zod";
 import { ApiError } from "../utils/ApiError.js";
 import { Courses } from "../models/course.model.js";
 import { Progress } from "../models/progress.model.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "./media.service.js";
 import { COURSE_STATUS } from "../config/courseLifecycle.js";
+
+// Matches the schema's own limits (course.model.js: title maxlength 60) so a
+// too-long title 400s in the frozen { message, errors: [{ field, code }] }
+// shape (docs/contracts/api-conventions.md "Error shapes") instead of
+// falling through to Mongoose's ValidationError, which errorHandler.middleware.js
+// does turn into a 400 but not in this shape.
+const courseInputSchema = z.object({
+    title: z.string().trim().min(1, "Title is required").max(60, "Title must be at most 60 characters"),
+    description: z.string().trim().min(1, "Description is required"),
+    category: z.string().trim().min(1, "Category is required"),
+});
 
 const COURSE_CARD_FIELDS = "thumbnail title description price category author";
 
@@ -31,6 +43,16 @@ export const visibleCourseFilter = (viewer) => {
 };
 
 export const createCourse = async (teacherId, { title, description, price, category, isLive, thumbnailLocalPath }) => {
+    const parsed = courseInputSchema.safeParse({ title, description, category });
+    if (!parsed.success) {
+        const errors = parsed.error.issues.map((issue) => ({
+            field: issue.path.join(".") || "(body)",
+            code: issue.code,
+        }));
+        throw new ApiError(400, parsed.error.issues[0].message, errors);
+    }
+    ({ title, description, category } = parsed.data);
+
     // Price is integer paise end to end (BACKEND_AUDIT.md §2.7). It arrives as
     // a multipart string, so parse and range-check it here to turn a fractional
     // or non-numeric value into a clear 400 rather than a ValidationError.
@@ -39,8 +61,12 @@ export const createCourse = async (teacherId, { title, description, price, categ
         throw new ApiError(400, "Price must be a whole number of paise (₹499 is sent as 49900)");
     }
 
-    if (await Courses.findOne({ title })) {
-        throw new ApiError(400, "Course Already exists");
+    // Per-author, not global (D3): the same title is fine across two
+    // different authors — global uniqueness was never the actual rule, just
+    // an accident of the original `findOne({title})` check having no
+    // `author` filter.
+    if (await Courses.findOne({ title, author: teacherId })) {
+        throw new ApiError(400, "You already have a course with this title", [{ field: "title", code: "custom" }]);
     }
 
     const thumbnail = await uploadOnCloudinary(thumbnailLocalPath);
