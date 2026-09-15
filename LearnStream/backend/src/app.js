@@ -8,6 +8,7 @@ import cors from "cors"
 import cookieParser from "cookie-parser"
 import morgan from "morgan"
 import helmet from "helmet"
+import compression from "compression"
 import fs from "fs"
 import path from "path"
 const app = express()
@@ -35,19 +36,46 @@ if (env.isProduction) {
     }))
 }
 
+app.use(compression())
+
 //middleware
-// The Razorpay webhook signs the exact bytes it sends, so the raw body has to
-// survive JSON parsing for that one route (BACKEND_AUDIT.md §2.8).
-// Re-serialising the parsed object is not equivalent — key order and
-// whitespace would differ and every signature check would fail.
-app.use(express.json({
-    limit:"16kb",
-    verify: (req, res, buf) => {
-        if (req.originalUrl === '/payment/webhook') {
-            req.rawBody = buf;
-        }
-    },
-}))
+// The Razorpay webhook and (later) the Cloudinary notification webhook both
+// sign the exact bytes they send, so the raw body has to survive intact for
+// verification (BACKEND_AUDIT.md §2.8, docs/contracts/api-conventions.md
+// "Body size limits"). Re-serialising a parsed object is not equivalent —
+// key order and whitespace would differ and every signature check would
+// fail — so these two paths get express.raw() ahead of every other body
+// parser, instead of a verify callback bolted onto the JSON parser.
+//
+// This also captures the JSON payload into `req.body` for the handler's
+// convenience (same as before), by parsing the raw bytes ourselves right
+// after capturing them — the handler still reads req.body.event etc. as
+// plain JSON, it just also has req.rawBody for the signature check.
+const RAW_BODY_PATHS = ["/payment/webhook", "/webhooks/cloudinary"];
+app.use(RAW_BODY_PATHS, express.raw({ type: "*/*", limit: "1mb" }));
+app.use(RAW_BODY_PATHS, (req, res, next) => {
+    req.rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
+    try {
+        req.body = req.rawBody.length ? JSON.parse(req.rawBody.toString("utf8")) : {};
+    } catch {
+        req.body = {};
+    }
+    next();
+});
+
+// /instructor authoring endpoints (curriculum/metadata edits) need a bigger
+// body than the rest of the API, so this is mounted BEFORE the global 16kb
+// parser below — body-parser's shared `req._body` flag (set by whichever
+// parser reads the body first) is what makes the global one skip re-parsing
+// a body this has already consumed, rather than hanging on an
+// already-drained stream (docs/contracts/api-conventions.md "Body size
+// limits").
+app.use('/instructor', express.json({ limit: '1mb' }))
+
+// The global parser for everything else. It never runs a second time for a
+// request one of the two middlewares above already parsed — see the
+// req._body note above.
+app.use(express.json({ limit: "16kb" }))
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -79,12 +107,34 @@ import CourseRouter from './routes/CourseRoutes/index.routes.js'
 import AuthRouter from "./routes/auth.routes.js"
 import PaymentRouter from "./routes/payment.routes.js"
 import { errorHandler } from "./middleware/errorHandler.middleware.js"
+import { mountFeatureRoutes, mountTestRoutes } from "./routes/loadFeatureRoutes.js"
+
 // Routes declaration
 app.use('/user/teacher',userTeacherRouter);
 app.use('/user/student',userStudentRouter);
+
+// routes/features/*.routes.js (docs/contracts/registries.md) mounted BEFORE
+// the legacy CourseRouter below: two of its new static routes
+// (/courses/categories, /courses/cards) are single path segments that would
+// otherwise be swallowed by the legacy GET /courses/:courseId catch-all —
+// Express dispatches middleware in registration order, so whichever router
+// is added to the stack first wins a path both would otherwise match.
+// Registering the whole feature-routes registry ahead of the legacy router
+// is what makes every new static sibling win without this file needing to
+// know about them individually (docs/contracts/api-conventions.md "Route
+// mounting" — priority only orders entries within the registry itself).
+await mountFeatureRoutes(app);
+
 app.use('/courses',CourseRouter);
 app.use('/auth',AuthRouter);
 app.use('/payment',PaymentRouter);
+
+// e2e-only scaffolding (mail outbox, fake media, learn-captions helpers) —
+// never a production code path (docs/contracts/api-conventions.md "Route
+// mounting").
+if (env.e2eTestRoutes && !env.isProduction) {
+    await mountTestRoutes(app);
+}
 
 // Must be registered last: this is what turns every thrown ApiError (and any
 // other error asyncHandler forwards) into a JSON envelope instead of

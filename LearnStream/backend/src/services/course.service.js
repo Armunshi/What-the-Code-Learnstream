@@ -3,8 +3,32 @@ import { Courses } from "../models/course.model.js";
 import { Progress } from "../models/progress.model.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "./media.service.js";
+import { COURSE_STATUS } from "../config/courseLifecycle.js";
 
 const COURSE_CARD_FIELDS = "thumbnail title description price category author";
+
+/**
+ * D2's visibility rule (docs/contracts/domain-model.md): the public catalog,
+ * search, and the course page show PUBLISHED courses only; the owning
+ * teacher additionally sees their own drafts; an enrolled student keeps
+ * access to a course even after the owner unpublishes it. Every place that
+ * lists or fetches courses for anything other than an owning-teacher's own
+ * authoring view should filter through this rather than querying `status`
+ * directly, so the rule lives in one place.
+ *
+ * `viewer` is `req.user` (possibly undefined for a guest).
+ */
+export const visibleCourseFilter = (viewer) => {
+    if (!viewer) {
+        return { status: COURSE_STATUS.PUBLISHED };
+    }
+    if (viewer.role === "teacher") {
+        return { $or: [{ status: COURSE_STATUS.PUBLISHED }, { author: viewer._id }] };
+    }
+    // A student viewer: published courses, plus anything they're enrolled in
+    // — including one the owner has since unpublished.
+    return { $or: [{ status: COURSE_STATUS.PUBLISHED }, { enrolledStudents: viewer._id }] };
+};
 
 export const createCourse = async (teacherId, { title, description, price, category, isLive, thumbnailLocalPath }) => {
     // Price is integer paise end to end (BACKEND_AUDIT.md §2.7). It arrives as
@@ -69,7 +93,11 @@ export const getCoursesForTeacher = async (teacherId) => {
 };
 
 export const getCourseById = async (courseId) => {
-    const course = await Courses.findById(courseId).populate("author", "name");
+    // enrolledStudents excluded: the full student roster is not something any
+    // viewer of a course page needs, and handing it to "any viewer" (this
+    // endpoint has no auth) is a privacy leak — see getEnrolledStudents
+    // (Course.controller.js) for the actual, ownership-gated way to fetch it.
+    const course = await Courses.findById(courseId).select("-enrolledStudents").populate("author", "name");
     if (!course) throw new ApiError(404, "course not found");
     return course;
 };
