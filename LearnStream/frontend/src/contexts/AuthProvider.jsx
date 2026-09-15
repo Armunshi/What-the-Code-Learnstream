@@ -2,6 +2,7 @@
 import { createContext, useState, useEffect } from "react";
 import { fetchNewAccessToken } from "../api/auth";
 import { registerAuthUpdater } from "../api/axios";
+import { tokenStore } from "../lib/api/tokenStore";
 
 const AuthContext = createContext({});
 
@@ -15,18 +16,26 @@ const authFromToken = (accessToken, role) => {
 
 export const AuthProvider = ({ children }) => {
   const [auth, setAuth] = useState({});
-  const [loading, setLoading] = useState(true); // wait for refresh token check
+  // 'unknown' while the refresh-token check is in flight, then either
+  // 'authenticated' or 'guest'. Public pages read this instead of waiting
+  // behind a blocking "Loading..." screen — the previous behavior, which
+  // meant the whole app (including guest-facing pages) sat on a blank
+  // screen until this resolved. The refresh logic itself is unchanged;
+  // only the "block everything" part is gone.
+  const [status, setStatus] = useState('unknown');
 
   useEffect(() => {
     const rehydrate = async () => {
       try {
         const {accessToken,role} = await fetchNewAccessToken(); // 👈 call your function
         setAuth(authFromToken(accessToken, role));
+        tokenStore.setToken(accessToken);
+        setStatus('authenticated');
       } catch (err) {
         console.log("No valid refresh token found.");
         setAuth({}); // empty auth
-      } finally {
-        setLoading(false);
+        tokenStore.clearToken();
+        setStatus('guest');
       }
     };
 
@@ -35,14 +44,20 @@ export const AuthProvider = ({ children }) => {
     // Lets the axios interceptor push a silently-refreshed token back into
     // context (or clear auth entirely if the refresh itself fails).
     registerAuthUpdater((accessToken, role) => {
-      setAuth(accessToken ? authFromToken(accessToken, role) : {});
+      if (accessToken) {
+        setAuth(authFromToken(accessToken, role));
+        tokenStore.setToken(accessToken);
+        setStatus('authenticated');
+      } else {
+        setAuth({});
+        tokenStore.clearToken();
+        setStatus('guest');
+      }
     });
   }, []);
 
-  if (loading) return <div>Loading...</div>;
-
   return (
-    <AuthContext.Provider value={{ auth, setAuth }}>
+    <AuthContext.Provider value={{ auth, setAuth, status }}>
       {children}
     </AuthContext.Provider>
   );
