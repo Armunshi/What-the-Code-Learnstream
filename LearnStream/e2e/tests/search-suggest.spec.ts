@@ -7,12 +7,12 @@ interface SearchSeed {
   courses: Array<{ id: string; title: string }>;
 }
 
-// GlobalSearch (docs/contracts/stubs.md, plan §4 W1-SRC) isn't reachable from
-// SiteHeader yet — NAV (the lane that mounts it there per stubs.md's own
-// header layout) hasn't merged. SearchResultsPage mounts its own
-// `<GlobalSearch variant="inline"/>` at the top specifically so this behavior
-// is exercisable at all; once NAV lands, the same input becomes reachable
-// from every page too, with no change needed here.
+// GlobalSearch (docs/contracts/stubs.md, plan §4 W1-SRC) is reached here via
+// NAV's SiteHeader, which mounts on every page including this one.
+// SearchResultsPage originally mounted its own second `<GlobalSearch
+// variant="inline"/>` so this was exercisable before NAV existed — removed
+// once NAV merged, since two elements sharing global-search-input made
+// getByTestId ambiguous (strict-mode violation) on this exact page.
 test.describe('GlobalSearch suggestions', () => {
   test('empty focus shows a trending list', async ({ page }) => {
     await page.goto('/courses/search');

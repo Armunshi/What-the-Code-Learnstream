@@ -4,7 +4,6 @@ import { fetchSearchResults, fetchRelatedSearches, fetchFreshCourses, postSearch
 import { searchKeys } from '../queryKeys.js';
 import { useSearchFilters } from '../useSearchFilters.js';
 import { getSearchSessionId } from '../useSearchSession.js';
-import { GlobalSearch } from '../components/GlobalSearch.jsx';
 import { QuickFilterBar } from '../components/QuickFilterBar.jsx';
 import { AllFiltersPanel } from '../components/AllFiltersPanel.jsx';
 import { ActiveFilterChips } from '../components/ActiveFilterChips.jsx';
@@ -99,10 +98,6 @@ export function SearchResultsPage() {
 
   return (
     <div className="mx-auto max-w-screen-xl px-4 py-6" data-testid="search-results-page">
-      <div className="mb-4 max-w-md">
-        <GlobalSearch variant="inline" />
-      </div>
-
       <QuickFilterBar
         filters={filters}
         facets={resultsQuery.data?.facets}
