@@ -123,24 +123,34 @@ async function completeSignup(path: string, creds: Credentials): Promise<void> {
   }
 
   if (res.status === 202) {
-    // The outbox route's shape IS specified by the plan, so this part is
-    // implemented for real rather than stubbed.
-    const outbox = await readOutbox(creds.email);
-    // TODO(AUTH lane, Wave 1): the plan calls for a verify endpoint here
-    // (read the OTP/token out of `outbox`'s most recent message to
-    // creds.email, then POST it to whatever route AUTH defines to activate
-    // the account) but that endpoint's name, method, and payload shape are
-    // not decided yet. Rather than guess and risk needing rework, this stops
-    // here with a clear error naming exactly what's missing. Fill in this
-    // branch — and only this branch — once AUTH lands:
-    //   1. the verify endpoint's route + method + expected body, and
-    //   2. the exact field in an OutboxEmail that carries the OTP/token.
-    throw new Error(
-      `${path} returned 202 (pending OTP signup) for ${creds.email}, and the harness read ` +
-        `${outbox.length} matching outbox message(s), but there is no verify-endpoint call implemented yet — ` +
-        'see the TODO in e2e/lib/api-client.ts (completeSignup). Fill in the 202 branch once the AUTH lane ' +
-        'defines the verify endpoint; no other file needs to change.'
-    );
+    // AUTH lane's OTP-signup flow (UI_REQS_14_09_26_IMPLEMENTATION_PLAN.md
+    // "W1-AUTH"): the account doesn't exist yet, only a pendingRegistration
+    // does. mail.service.js's outbox entry for an OTP mail carries a
+    // structured `code` field (not just prose in `text`) specifically so
+    // this harness doesn't need to regex-parse a sentence — see
+    // mail.service.js's sendOtpMail. Poll briefly: the outbox write happens
+    // after this response is sent, so it isn't guaranteed to be there yet
+    // the instant this call returns.
+    let code: string | undefined;
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const outbox = await readOutbox(creds.email);
+      const last = outbox[outbox.length - 1];
+      if (typeof last?.code === 'string') {
+        code = last.code;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!code) {
+      throw new Error(
+        `${path} returned 202 (pending OTP signup) for ${creds.email}, but no outbox message with a ` +
+          '`code` field showed up within 5s — is E2E_MAIL_OUTBOX=1 set for the spawned backend?'
+      );
+    }
+
+    await postJson('/auth/register/verify', { email: creds.email, code });
+    return;
   }
 
   throw new Error(`POST ${path} -> ${res.status}: ${json.message ?? 'unknown error'}`);
