@@ -13,7 +13,6 @@ import Student from '../Pages/StudentPage.jsx';
 import Home from '../Pages/Home.jsx';
 import MakeaCourse from '../Pages/MakeaCourse.jsx';
 import ViewtheModules from '../Pages/ViewtheModules.jsx';
-import ViewStudentModules from '../Pages/ViewStudentModule.jsx';
 import LectureAssig from '../Pages/LectureAssig.jsx';
 import UploadedAssignment from '../Pages/UploadedAssignment.jsx';
 import LoginPage from '../Pages/login.jsx';
@@ -32,6 +31,14 @@ import TeacherProfile from '../Pages/TeacherProfile.jsx';
 // LegacyUserRoute so the redirect shape exists for whichever lane later
 // gives them a new home (docs/contracts registries.md); it is a no-op today
 // since no `to` mapping is supplied yet.
+//
+// The old "user/:course_id" entry (ViewStudentModule) is NOT here — it
+// collided with ACC's "user/:username" (PublicProfilePage) at the identical
+// path shape, since createBrowserRouter resolves same-specificity siblings
+// by array order and this array is spread before featureRoutes below, so
+// it always won and made PublicProfilePage unreachable. Both now live behind
+// one entry, features/profile/routes.jsx's "user/:idOrUsername", which
+// branches on the value (app/UserOrCourseRoute.jsx) instead of colliding.
 const legacyRoutes = createRoutesFromElements(
   <Route path="/" element={<Layout />}>
     <Route path="/" element={<Home />} />
@@ -56,7 +63,6 @@ const legacyRoutes = createRoutesFromElements(
     <Route path="teacher/:user_id/makecourse" element={<MakeaCourse />} />
     <Route path="teacher/:user_id/:course_id" element={<ViewtheModules />} />
     <Route path="teacher/:user_id/:course_id/:assignmentId" element={<UploadedAssignment />} />
-    <Route path="user/:course_id" element={<ViewStudentModules />} />
     <Route path="student/:user_id/Cart" element={<Cart />} />
     <Route path="student/:user_id/:course_id/:module_id/view" element={<LectureAssig />} />
     <Route path="student/:user_id/profile" element={<StudentProfile />} />

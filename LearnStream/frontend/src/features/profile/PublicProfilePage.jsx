@@ -17,8 +17,14 @@ function initials(name) {
 
 // Frozen signature (docs/contracts/stubs.md): PublicProfilePage renders at
 // /user/:username, no props — it reads its own params/query.
+//
+// The route param is actually named :idOrUsername (app/UserOrCourseRoute.jsx)
+// — /user/:username collides with the legacy /user/:courseId course-view
+// route (plan §0.2), so both share one route disambiguated by whether the
+// value is a 24-hex ObjectId. Aliased back to `username` here since that's
+// never true for a real username (see domain-model.md's user.model.js note).
 export function PublicProfilePage() {
-  const { username } = useParams();
+  const { idOrUsername: username } = useParams();
   const { data: profile, isLoading, isError } = useQuery({
     queryKey: ['publicProfile', username],
     queryFn: () => getPublicProfile(username),
