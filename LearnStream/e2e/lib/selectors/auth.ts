@@ -33,3 +33,40 @@ export async function loginAs(
   await form.getByRole('button', { name: 'Login' }).click();
   await page.waitForURL(new RegExp(`/${role}/`), { timeout: 15_000 });
 }
+
+// Signup / OTP-verify selectors (SignupForm.jsx — docs/lanes/auth.json).
+
+export function getSignupStep1(page: Page): Locator {
+  return page.getByTestId('signup-step-1');
+}
+
+export function getSignupStep2(page: Page): Locator {
+  return page.getByTestId('signup-step-2');
+}
+
+export async function fillSignupStep1(
+  page: Page,
+  fields: { firstName: string; lastName: string; email: string; password: string }
+): Promise<void> {
+  const step = getSignupStep1(page);
+  await step.locator('#firstName').fill(fields.firstName);
+  await step.locator('#lastName').fill(fields.lastName);
+  await step.locator('#email').fill(fields.email);
+  await step.locator('#password').fill(fields.password);
+  await step.locator('#confirmPassword').fill(fields.password);
+  await step.locator('#terms').click();
+}
+
+// input-otp renders one real (visually hidden) <input> under the visible
+// slot boxes — that's the actual typing target the library manages, not the
+// individual slot divs. Clicking the wrapper focuses it, then a normal
+// keyboard type fills it, exactly like a user pasting or typing a code.
+export async function fillOtpCode(page: Page, code: string): Promise<void> {
+  const otpInput = page.getByTestId('otp-input');
+  await otpInput.click();
+  await page.keyboard.type(code);
+}
+
+export function getResendButton(page: Page): Locator {
+  return page.getByTestId('resend-button');
+}

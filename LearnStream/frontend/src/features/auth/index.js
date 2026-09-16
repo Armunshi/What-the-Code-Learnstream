@@ -7,3 +7,4 @@
 // file inside it belongs to a different lane than the rest.
 export { LoginPromptDialog } from './LoginPromptDialog.jsx';
 export { useRequireAuth, useLoginPromptStore } from './useRequireAuth.jsx';
+export { SignupForm } from './SignupForm.jsx';
