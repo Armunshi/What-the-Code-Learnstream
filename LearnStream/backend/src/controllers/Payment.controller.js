@@ -9,6 +9,7 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { fulfilOrder } from '../services/payment.service.js';
 import crypto from 'crypto';
 import { env } from '../config/env.js';
+import { COURSE_STATUS } from '../config/courseLifecycle.js';
 
 // Signature comparison in constant time. A plain !== leaks, through response
 // timing, how long a prefix of a guessed signature was correct.
@@ -40,11 +41,26 @@ const createOrder = asyncHandler(async (req, res) => {
   // client-supplied amount, since that would let a tampered request pay
   // whatever it wants for a course.
   const courses = await Courses.find({ _id: { $in: course_ids } }).select(
-    'price'
+    'price status enrolledStudents'
   );
   if (courses.length !== course_ids.length) {
     throw new ApiError(404, 'One or more courses could not be found');
   }
+
+  // D10's createOrder guard (docs/contracts/api-conventions.md): a free,
+  // unpublished, or already-enrolled course never reaches Razorpay — each of
+  // those is "not a valid paid purchase" for the same underlying reason, so
+  // they share one code rather than three.
+  const invalid = courses.some(
+    (course) =>
+      course.price === 0 ||
+      course.status !== COURSE_STATUS.PUBLISHED ||
+      (course.enrolledStudents ?? []).some((id) => id.toString() === user_id.toString())
+  );
+  if (invalid) {
+    return res.status(400).json({ code: 'FREE_COURSE_ENROLL_DIRECTLY' });
+  }
+
   // Course prices are already integer paise (BACKEND_AUDIT.md §2.7), so this
   // is a plain sum with no rupee conversion. Math.round is belt-and-braces
   // against any legacy fractional price predating the migration — Razorpay
