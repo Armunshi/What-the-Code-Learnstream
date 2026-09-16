@@ -133,7 +133,11 @@ export function SearchResultsPage() {
           clearAll={clearAll}
         />
 
-        <div className="flex-1">
+        {/* min-w-0 overrides the flex item's default min-width:auto — without
+            it, HotAndFreshCarousel's embla track sizes to its full
+            (unclipped) content width and drags this whole column, and the
+            page, wider than the viewport at narrow widths. */}
+        <div className="min-w-0 flex-1">
           <div className="mb-4 flex items-center justify-between">
             <ResultCount total={total} />
             <SortSelect value={filters.sort} onChange={setSort} />
