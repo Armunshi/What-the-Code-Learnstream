@@ -60,7 +60,10 @@ test.describe('SiteHeader (NAV)', () => {
 
     await expect(page.getByTestId('mobile-nav-trigger')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Explore' })).toBeHidden();
-    await expect(page.getByRole('link', { name: 'Teach on LearnStream' })).toBeHidden();
+    // Scoped to the header: SiteFooter has its own "Teach on LearnStream"
+    // link (contentinfo role), always visible, which an unscoped query would
+    // also match.
+    await expect(page.getByRole('banner').getByRole('link', { name: 'Teach on LearnStream' })).toBeHidden();
   });
 
   test('md-lg: the hamburger still holds Explore and Teach', async ({ page }) => {
@@ -73,7 +76,9 @@ test.describe('SiteHeader (NAV)', () => {
 
     await page.getByTestId('mobile-nav-trigger').click();
     await expect(page.getByTestId('mobile-explore-category').first()).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Teach on LearnStream' })).toBeVisible();
+    // Scoped to the open sheet (Radix Sheet renders role="dialog"): SiteFooter
+    // has its own "Teach on LearnStream" link an unscoped query would also match.
+    await expect(page.getByRole('dialog').getByRole('link', { name: 'Teach on LearnStream' })).toBeVisible();
   });
 
   test('lg and up: Explore and Teach render directly, the hamburger hides', async ({ page }) => {
@@ -83,7 +88,9 @@ test.describe('SiteHeader (NAV)', () => {
 
     await expect(page.getByTestId('mobile-nav-trigger')).toBeHidden();
     await expect(page.getByRole('button', { name: 'Explore' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Teach on LearnStream' })).toBeVisible();
+    // Scoped to the header: SiteFooter has its own "Teach on LearnStream"
+    // link, which makes an unscoped query a strict-mode violation (2 matches).
+    await expect(page.getByRole('banner').getByRole('link', { name: 'Teach on LearnStream' })).toBeVisible();
   });
 
   test('a teacher sees no cart in the header', async ({ page, testData }) => {
