@@ -10,7 +10,9 @@
     "backend/src/routes/features/search.routes.js",
     "backend/src/config/search.js",
     "backend/src/validation/search.schemas.js",
-    "frontend/src/features/search/**"
+    "frontend/src/features/search/**",
+    "e2e/tests/search-suggest.spec.ts",
+    "e2e/tests/search-filters.spec.ts"
   ],
   "appends": [
     "frontend/src/features/search/routes.jsx",
