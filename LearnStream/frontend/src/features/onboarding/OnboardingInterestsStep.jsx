@@ -57,7 +57,7 @@ export function OnboardingInterestsStep() {
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="w-full max-w-lg bg-white shadow-lg rounded-lg p-8 flex flex-col gap-4" data-testid="onboarding-interests-step">
         <h2 className="text-xl font-bold">What are you interested in?</h2>
-        <p className="text-sm text-gray-600">Pick a few topics — we'll use these to personalize your recommendations.</p>
+        <p className="text-sm text-gray-600">Pick a few topics — we&apos;ll use these to personalize your recommendations.</p>
 
         <div className="flex flex-wrap gap-2">
           {options.map((option) => {

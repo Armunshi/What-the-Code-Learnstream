@@ -207,7 +207,7 @@ function useCountdown(targetTime) {
   return remainingMs;
 }
 
-function StepTwo({ role, email, expiresAt, resendAvailableAt, onVerified }) {
+function StepTwo({ email, expiresAt, resendAvailableAt, onVerified }) {
   const {
     control,
     handleSubmit,
@@ -327,7 +327,6 @@ export function SignupForm({ role, verb = 'amazing' }) {
   if (step === 2 && pending) {
     return (
       <StepTwo
-        role={role}
         email={pending.email}
         expiresAt={pending.expiresAt}
         resendAvailableAt={pending.resendAvailableAt}
