@@ -10,7 +10,8 @@
     "frontend/src/features/profile/**",
     "frontend/src/features/wishlist/**",
     "frontend/src/Pages/StudentProfile.jsx",
-    "frontend/src/Pages/TeacherProfile.jsx"
+    "frontend/src/Pages/TeacherProfile.jsx",
+    "docs/lanes/acc.json"
   ],
   "appends": [
     "frontend/src/features/account/routes.jsx",
@@ -19,9 +20,10 @@
     "frontend/src/features/account/menu.js",
     "frontend/src/features/profile/menu.js",
     "frontend/src/features/wishlist/menu.js",
-    "e2e/seeds/account.seed.ts"
+    "e2e/seeds/account.seed.ts",
+    "e2e/tests/account-profile.spec.ts"
   ],
   "hostsRegistries": [],
   "handsOffToWave1": [],
-  "notes": "Replaces the WishlistButton/PublicProfilePage stub bodies (frozen signatures). Wave 1 merge order: 9th."
+  "notes": "Replaces the WishlistButton/PublicProfilePage stub bodies (frozen signatures). Wave 1 merge order: 9th. w1.0-amendment (this lane): the original manifest had no glob for this lane's own test files (no e2e/tests/** entry at all — the same gap docs/lanes/shell.json's own amendment note flags as shared by every Wave 1 lane's manifest). Backend unit tests live under backend/src/services/user/__tests__/**, already covered by this lane's existing 'backend/src/services/user/**' glob, so no separate backend-tests append was needed. Added docs/lanes/acc.json to owns (so this amendment itself is in-manifest) and one narrow append for the e2e spec required by this lane's definition of done."
 }
