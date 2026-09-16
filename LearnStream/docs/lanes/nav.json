@@ -6,13 +6,15 @@
   "owns": [
     "frontend/src/components/layout/**",
     "frontend/src/features/nav/**",
-    "frontend/src/features/teach/**"
+    "frontend/src/features/teach/**",
+    "docs/lanes/nav.json"
   ],
   "appends": [
     "frontend/src/features/teach/routes.jsx",
-    "frontend/src/features/nav/menu.js"
+    "frontend/src/features/nav/menu.js",
+    "e2e/tests/navbar.spec.ts"
   ],
   "hostsRegistries": [],
   "handsOffToWave1": [],
-  "notes": "Takes over components/layout/** and components/{Navbar1,Footer}.jsx from the Wave 0 handoff. Builds SiteHeader per docs/contracts/stubs.md #5.1, but consumes the GlobalSearch (SRC) and CartButton (COM) stubs unchanged. menu.js append is the Session group only. Wave 1 merge order: 7th."
+  "notes": "Takes over components/layout/** and components/{Navbar1,Footer}.jsx from the Wave 0 handoff. Builds SiteHeader per docs/contracts/stubs.md #5.1, but consumes the GlobalSearch (SRC) and CartButton (COM) stubs unchanged. menu.js append is the Session group only. Wave 1 merge order: 7th. w1.0-amendment (this lane): the original manifest had no glob for this lane's own e2e spec (no e2e/** entry at all, unlike cat.json/learn.json/auth.json, which each list their spec's exact path) despite this lane's definition of done requiring navbar.spec.ts — a manifest gap, not a deliberate omission (see upl.json and shell.json for the same class of self-declared fix). Added `docs/lanes/nav.json` to owns (so this amendment itself is in-manifest) and `e2e/tests/navbar.spec.ts` to appends. Note left unresolved, NOT self-amended: components/{Navbar1,Footer}.jsx (named in this same notes field and in the plan's Wave 0 handoff table) were never added to owns/appends, and no other lane claims them either. This lane's implementation avoided depending on them (the new SiteHeader/SiteFooter live entirely under components/layout/**, which is owned), so no amendment was forced — but the gap is real and is flagged in the final report rather than papered over here, since — unlike the e2e spec path — nothing in this lane's own definition of done required touching those two files."
 }
