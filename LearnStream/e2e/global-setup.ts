@@ -180,6 +180,9 @@ export default async function globalSetup(): Promise<void> {
     path.join(ASSETS_DIR, 'placeholder-lecture.mp4')
   );
 
+  console.log('[e2e setup] publishing the fixture course (COM\'s createOrder guard requires PUBLISHED)...');
+  await api.publishCourseForPurchase(teacherLogin.accessToken, course._id);
+
   console.log('[e2e setup] seeding student + enrollment (signed webhook, no checkout UI)...');
   await api.signupStudent(studentCreds);
   const studentLogin = await api.loginStudent(studentCreds);

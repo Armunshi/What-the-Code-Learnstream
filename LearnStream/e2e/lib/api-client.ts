@@ -27,6 +27,22 @@ async function postJson<T>(path: string, body: unknown, token?: string): Promise
   return json;
 }
 
+async function patchJson<T>(path: string, body: unknown, token: string): Promise<ApiEnvelope<T>> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json()) as ApiEnvelope<T>;
+  if (!res.ok) {
+    throw new Error(`PATCH ${path} -> ${res.status}: ${json.message ?? 'unknown error'}`);
+  }
+  return json;
+}
+
 async function postMultipart<T>(
   path: string,
   fields: Record<string, string>,
@@ -226,6 +242,22 @@ export async function verifyPayment(
   body: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }
 ): Promise<void> {
   await postJson('/payment/verify', body, studentToken);
+}
+
+// A course created via POST /courses (legacy, still what createCourse above
+// calls) starts life DRAFT, with editVersion 0 — COM's createOrder guard
+// (D10) now rejects a non-PUBLISHED course, so anything meant to actually be
+// purchased in the fixture has to go through the real instructor publish
+// flow instead of just existing. SHELL's readiness rules currently require
+// only a title (always true) and at least one learning objective, hence the
+// PATCH below before publishing.
+export async function publishCourseForPurchase(teacherToken: string, courseId: string): Promise<void> {
+  await patchJson(
+    `/instructor/courses/${courseId}/learners`,
+    { editVersion: 0, learningObjectives: ['Seeded for e2e — not a real course.'], noPrerequisites: true },
+    teacherToken
+  );
+  await postJson(`/instructor/courses/${courseId}/publish`, {}, teacherToken);
 }
 
 // Posts a Razorpay-style webhook. Takes the exact body string rather than an
