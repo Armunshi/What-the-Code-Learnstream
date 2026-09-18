@@ -51,7 +51,7 @@ export function CurriculumSidebar({ tree, activeItemId, onSelectItem }) {
                   <li key={item.id}>
                     <Collapsible>
                       <div
-                        className={`flex items-center gap-1 rounded px-1 ${
+                        className={`flex min-w-0 items-center gap-1 rounded px-1 ${
                           item.id === activeItemId ? "bg-muted" : ""
                         }`}
                       >
@@ -60,7 +60,7 @@ export function CurriculumSidebar({ tree, activeItemId, onSelectItem }) {
                           data-testid="curriculum-item"
                           data-item-id={item.id}
                           onClick={() => onSelectItem(item.id)}
-                          className="flex flex-1 items-center gap-2 py-1.5 text-left text-sm"
+                          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-sm"
                         >
                           <span
                             className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${
@@ -73,7 +73,7 @@ export function CurriculumSidebar({ tree, activeItemId, onSelectItem }) {
                           >
                             {item.completed ? "✓" : ""}
                           </span>
-                          <span className={`flex-1 truncate ${item.id === activeItemId ? "font-medium" : ""}`}>
+                          <span className={`min-w-0 flex-1 truncate ${item.id === activeItemId ? "font-medium" : ""}`}>
                             {item.title}
                           </span>
                         </button>

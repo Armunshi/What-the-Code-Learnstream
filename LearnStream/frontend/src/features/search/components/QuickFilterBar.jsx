@@ -64,11 +64,18 @@ export function QuickFilterBar({ filters, facets, toggleValue, setRadio, onOpenA
         />
       </QuickFilterPopover>
 
+      {/* lg:hidden matches AllFiltersPanel's SheetContent, which is also
+          lg:hidden (the sticky aside takes over there instead) — without it,
+          this button stayed visible and clickable at lg+, opening a Sheet
+          whose overlay has no such breakpoint guard (so it dims the whole
+          page) but whose actual content panel is hidden at that width,
+          leaving only a dark screen with nothing in it until a second click
+          (landing on the overlay) closed it again. */}
       <Button
         type="button"
         variant="outline"
         size="sm"
-        className="shrink-0 gap-1.5"
+        className="shrink-0 gap-1.5 lg:hidden"
         data-testid="all-filters-button"
         onClick={onOpenAllFilters}
       >
