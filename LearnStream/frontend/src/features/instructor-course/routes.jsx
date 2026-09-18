@@ -1,4 +1,4 @@
-import { RequireTeacher } from './components/RequireTeacher';
+import RequireRole from '@/app/guards/RequireRole';
 import { CourseAuthoringLayout } from './components/CourseAuthoringLayout';
 import { MyCoursesPage } from './pages/MyCoursesPage';
 import { CreateCoursePage } from './pages/CreateCoursePage';
@@ -22,7 +22,7 @@ const stepRoutes = stepRegistry.map((step) => ({
 export default [
   {
     path: 'instructor/courses',
-    element: <RequireTeacher />,
+    element: <RequireRole roles="teacher" />,
     children: [
       { index: true, element: <MyCoursesPage /> },
       { path: 'new', element: <CreateCoursePage /> },

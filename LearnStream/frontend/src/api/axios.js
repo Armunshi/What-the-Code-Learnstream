@@ -1,58 +1,15 @@
-import axios from 'axios';
-
-// Create an Axios instance
-const apiClient = axios.create({
-    // baseURL: 'https://whathecode-learnstream.onrender.com',
-    baseURL:  import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000', // Change this to your backend URL
-    withCredentials: true, // Allows sending cookies
-});
-
-// AuthProvider registers itself here so the interceptor below can push a
-// silently-refreshed token back into React context (and clear it on
-// refresh failure) without axios.js importing anything React-specific.
-let authUpdater = null;
-export const registerAuthUpdater = (fn) => {
-    authUpdater = fn;
-};
-
-const REFRESH_TOKEN_PATH = '/auth/refresh-Token';
-
-// On a 401, try exactly one silent refresh + retry before giving up. This
-// removes the need for every page to hand-roll its own 401 handling, and
-// means a mid-session-expired access token doesn't strand the user on an
-// "unauthorized" error.
-apiClient.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-        const originalRequest = error.config;
-
-        if (
-            error.response?.status !== 401 ||
-            originalRequest?._retry ||
-            originalRequest?.url?.includes(REFRESH_TOKEN_PATH)
-        ) {
-            return Promise.reject(error);
-        }
-
-        originalRequest._retry = true;
-
-        try {
-            const refreshResponse = await apiClient.post(REFRESH_TOKEN_PATH, {}, { withCredentials: true });
-            const { accessToken, role } = refreshResponse.data.data;
-
-            authUpdater?.(accessToken, role);
-
-            originalRequest.headers = {
-                ...originalRequest.headers,
-                Authorization: `Bearer ${accessToken}`,
-            };
-            return apiClient(originalRequest);
-        } catch (refreshError) {
-            authUpdater?.(null);
-            return Promise.reject(refreshError);
-        }
-    }
-);
-
-export default apiClient;
-
+// This used to be its own axios instance with its own copy of the
+// bearer-attach + single-flight-refresh interceptor logic, independently
+// from lib/api/privateClient.js's copy of the same thing. The two drifted:
+// this one never attached a bearer token automatically (every legacy Pages/
+// component had to pass `Authorization: Bearer ${auth?.accessToken}` by
+// hand) and its refresh success path went through a bespoke
+// `registerAuthUpdater` callback into AuthProvider instead of the shared
+// tokenStore, which is one of the reasons a fresh login/refresh could leave
+// AuthProvider's `status` out of sync with reality.
+//
+// There is only one authenticated client now. This file is kept only
+// because most legacy Pages/components still `import axios from
+// "../api/axios"` — re-exporting privateClient here means they get the
+// fixed, single implementation with no per-file changes required.
+export { privateClient as default } from "../lib/api/privateClient";

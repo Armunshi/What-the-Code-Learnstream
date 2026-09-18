@@ -4,17 +4,17 @@ import { Button, Checkbox, Label, Spinner, TextInput } from "flowbite-react";
 import { useRef, useState, useEffect, useContext } from 'react';
 import AuthContext from "../contexts/AuthProvider";
 import axios from '../api/axios';
+import { tokenStore } from '../lib/api/tokenStore';
 
 import { Link, useNavigate } from "react-router-dom";
 function Component({role}) {
     const navigate = useNavigate();
-    const {auth, setAuth } = useContext(AuthContext);
+    const {auth } = useContext(AuthContext);
     const userRef = useRef();
     const errRef = useRef();
     const [user, setUser] = useState('');
     const [pwd, setPwd] = useState('');
     const [errMsg, setErrMsg] = useState('');
-    const [success, setSuccess] = useState(false);
 
     useEffect(() => {
       console.log("Current AUth",auth);
@@ -24,12 +24,16 @@ function Component({role}) {
     useEffect(() => {
         setErrMsg('');
     }, [user, pwd])
-    
+
+    // Redirects once `auth` is actually populated, the same signal
+    // Pages/login.jsx uses — not a separate local `success` flag, which used
+    // to reference an undefined `userId` here and would throw the moment it
+    // ran.
     useEffect(() => {
-      if ((auth?.user_id && auth?.accessToken) || success) {
-        navigate(`/${role}/${userId}`);
+      if (auth?.user_id && auth?.role) {
+        navigate(`/${auth.role}/${auth.user_id}`);
       }
-    }, [navigate, success]);
+    }, [auth, navigate]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -46,18 +50,19 @@ function Component({role}) {
             //console.log(JSON.stringify(response));
             const accessToken = response?.data?.data?.accessToken;
             const user_id = response?.data?.data?.user._id
-            const role = response?.data?.data?.role;
-            const name = response?.data?.data?.user.name;
-            // Key must be `role`: every consumer reads auth.role (Pages/login.jsx
-            // guards on it and builds its redirect from it). This used to be
-            // shorthand `roles`, which stored the value under the wrong key and
-            // left auth.role undefined after logging in through this form.
-            setAuth({ user_id, name, role, accessToken });
-            navigate(`/${role}/${user_id}`);
+            // Named userRole, not role: a `const role = ...` here used to
+            // redeclare the outer `role` prop within the same function body,
+            // which is a temporal-dead-zone ReferenceError on the very
+            // `${role}` reference above, the moment this ran — every submit
+            // through this form crashed before the request was even sent.
+            const userRole = response?.data?.data?.role;
+            // tokenStore is the single source of truth AuthProvider derives
+            // `auth` (including role) from — see contexts/AuthProvider.jsx.
+            tokenStore.setToken(accessToken);
+            navigate(`/${userRole}/${user_id}`);
             console.log('Current COntext',auth);
             setUser('');
             setPwd('');
-            setSuccess(true);
         } catch (err) {
             console.log(err)
             if (!err?.response) {
@@ -74,11 +79,11 @@ function Component({role}) {
     }
 
   return (
-    ((localStorage.getItem(`user_id`)&&localStorage.getItem(`accessToken`)) || success) ? (
+    auth?.accessToken ? (
       <>
-      <Spinner/>  
+      <Spinner/>
       </>
-  
+
   ):(
     <form  onSubmit={handleSubmit} className="flex max-w-lg  flex-col gap-4">
     <p ref={errRef} className={errMsg ? "errmsg" : "offscreen"} aria-live="assertive">{errMsg}</p>

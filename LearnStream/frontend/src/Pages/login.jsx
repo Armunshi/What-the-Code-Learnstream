@@ -3,12 +3,13 @@ import { Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import AuthContext from "../contexts/AuthProvider";
 import axios from "../api/axios";
+import { tokenStore } from "../lib/api/tokenStore";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { auth, setAuth } = useContext(AuthContext);
+  const { auth } = useContext(AuthContext);
 
   const [student, setStudent] = useState({ email: "", password: "", error: "", loading: false });
   const [teacher, setTeacher] = useState({ email: "", password: "", error: "", loading: false });
@@ -39,8 +40,11 @@ const LoginPage = () => {
       const user_id = user._id;
       const name = user.name;
 
-      // 🧠 Store token only in memory (auth context)
-      setAuth({ user_id, name, role: userRole, accessToken });
+      // Committing the token here — and only here — is what makes
+      // AuthProvider's `auth`/`status` update: it subscribes to tokenStore
+      // and derives both from whatever token is current, so this one call
+      // is the entire "log the user in" step (see contexts/AuthProvider.jsx).
+      tokenStore.setToken(accessToken);
 
       // 💾 Store non-sensitive info for persistence
       localStorage.setItem("userMeta", JSON.stringify({ user_id, name, role: userRole }));

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import axios from "../api/axios";
 import { useContext } from "react";
 import AuthContext from "../contexts/AuthProvider";
+import { tokenStore } from "../lib/api/tokenStore";
 import { ShoppingCart, Menu, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
@@ -24,7 +25,7 @@ const navLinks = [
 ];
 
 const Navbar1 = () => {
-  const { auth, setAuth } = useContext(AuthContext);
+  const { auth } = useContext(AuthContext);
   const navigate = useNavigate();
   const [cartCount, setCartCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -73,7 +74,7 @@ const Navbar1 = () => {
 
       if (response) {
         localStorage.clear();
-        setAuth({});
+        tokenStore.clearToken();
         navigate("/");
       }
     } catch (error) {

@@ -1,10 +1,10 @@
-import { useState, useContext, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loader2, Check, X } from 'lucide-react';
 import { toast } from 'sonner';
-import AuthContext from '@/contexts/AuthProvider';
+import { tokenStore } from '@/lib/api/tokenStore';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -312,11 +312,12 @@ function StepTwo({ email, expiresAt, resendAvailableAt, onVerified }) {
 export function SignupForm({ role, verb = 'amazing' }) {
   const [step, setStep] = useState(1);
   const [pending, setPending] = useState(null);
-  const { setAuth } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const handleVerified = ({ user, role: userRole, accessToken }) => {
-    setAuth({ user_id: user._id, name: user.name, role: userRole, accessToken });
+    // tokenStore is the single source of truth AuthProvider derives `auth`
+    // (including role) from — see contexts/AuthProvider.jsx.
+    tokenStore.setToken(accessToken);
     localStorage.setItem('userMeta', JSON.stringify({ user_id: user._id, name: user.name, role: userRole }));
     // Onboarding is offered once, right after signup, never forced
     // elsewhere in the app (plan: "Both have an equally prominent 'Skip for
