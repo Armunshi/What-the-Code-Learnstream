@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from '../api/axios';
 import { useParams } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
@@ -7,7 +7,7 @@ import FileDropzone from '../components/FileDropzone';
 function ModuleForm() {
   const [modules, setModules] = useState([]);
   const { course_id } = useParams();
-  const [ownerId, setOwnerId] = useState(null);
+  const [, setOwnerId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [bannerError, setBannerError] = useState('');
   const [bannerSuccess, setBannerSuccess] = useState('');

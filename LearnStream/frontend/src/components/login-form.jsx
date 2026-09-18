@@ -1,4 +1,3 @@
-import React from "react";
 import { Button, Checkbox, Label, Spinner, TextInput } from "flowbite-react";
 
 import { useRef, useState, useEffect, useContext } from 'react';
@@ -6,7 +5,7 @@ import AuthContext from "../contexts/AuthProvider";
 import axios from '../api/axios';
 import { tokenStore } from '../lib/api/tokenStore';
 
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 function Component({role}) {
     const navigate = useNavigate();
     const {auth } = useContext(AuthContext);

@@ -1,6 +1,3 @@
-import React from "react";
-import images from "../../public/assets/images.jpeg"
-
 function BackgroundWrapper({ children,url="" }) {
   return (
     <div

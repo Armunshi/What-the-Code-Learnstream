@@ -1,5 +1,3 @@
-import React from 'react'
-import { useRef,useEffect,useState } from 'react'
 import Signup from '../components/Signup'
 
 function SignupS() {
