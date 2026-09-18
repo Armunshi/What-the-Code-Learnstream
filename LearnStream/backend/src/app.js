@@ -13,6 +13,26 @@ import fs from "fs"
 import path from "path"
 const app = express()
 
+// This is a pure JSON API with no static assets, and most of its GETs are
+// personalized (my-learning, cart, instructor courses, …). Express's default
+// `etag` setting auto-computes a weak ETag from the raw response body with no
+// awareness of *who* asked for it, so a browser holding an old cached body
+// for a URL (from an earlier account, or from before the data changed) can
+// get it validly replayed via a 304 the moment two different responses for
+// that URL happen to hash the same — confirmed live: /users/me/learning,
+// /courses/cart and /instructor/courses were all observed serving stale 304s
+// this way. Disabling etag app-wide, plus defaulting every response to
+// `Cache-Control: no-store`, kills that class of bug outright. Routes that
+// deliberately want caching (catalog, stats, search, reviews) opt back in
+// explicitly via middleware/cacheControl.js's cacheControl()/publicCache(),
+// which sets its own Cache-Control header later in the same request and
+// overrides this default.
+app.disable("etag")
+app.use((req, res, next) => {
+    res.set("Cache-Control", "no-store")
+    next()
+})
+
 // crossOriginResourcePolicy defaults to "same-origin", which makes browsers
 // block a cross-origin fetch of this API's own responses regardless of the
 // CORS headers below — and this app is cross-site by construction (Vercel
