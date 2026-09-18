@@ -126,6 +126,49 @@ export const updateLearners = async (courseId, teacherId, body) => {
     return { conflict: false, course: updated };
 };
 
+const pricingInputSchema = z.object({
+    editVersion: z.number().int().nonnegative(),
+    // Integer paise (course.model.js's own comment: ₹499 -> 49900) — the
+    // frontend converts from whatever rupee amount the teacher typed before
+    // this ever gets called. 0 is a valid, deliberate value (a free course),
+    // not a placeholder.
+    price: z.number().int().nonnegative(),
+});
+
+/**
+ * `PATCH /instructor/courses/:courseId/pricing` — same editVersion
+ * optimistic-lock pattern as updateLearners above (course.model.js's own
+ * comment on `editVersion` names pricing edits as one of the writes meant to
+ * share this counter, so a pricing save and a learners save racing each
+ * other are still each other's "someone saved first" case, not two
+ * independent counters that can't see one another).
+ */
+export const updateCoursePricing = async (courseId, teacherId, body) => {
+    await getOwnedCourse(courseId, teacherId);
+
+    const parsed = pricingInputSchema.safeParse(body);
+    if (!parsed.success) {
+        const errors = parsed.error.issues.map((issue) => ({
+            field: issue.path.join(".") || "(body)",
+            code: issue.code,
+        }));
+        throw new ApiError(400, parsed.error.issues[0].message, errors);
+    }
+    const { editVersion, price } = parsed.data;
+
+    const updated = await Courses.findOneAndUpdate(
+        { _id: courseId, editVersion },
+        { $set: { price, pricingConfirmedAt: new Date() }, $inc: { editVersion: 1 } },
+        { new: true, runValidators: true }
+    );
+
+    if (!updated) {
+        const current = await Courses.findById(courseId);
+        return { conflict: true, current };
+    }
+    return { conflict: false, course: updated };
+};
+
 /**
  * `POST …/publish` (C-FR-18): 422 with the failing required readiness rules
  * instead of publishing. Readiness is recomputed here rather than trusted

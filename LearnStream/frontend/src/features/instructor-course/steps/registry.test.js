@@ -4,7 +4,7 @@ import { stepRegistry, getStepsByGroup, getStepById, getStepForReadinessKey, get
 describe('step registry (collected from steps/*/step.jsx)', () => {
   it('collects every step this lane ships', () => {
     const ids = stepRegistry.map((step) => step.id).sort();
-    expect(ids).toEqual(['learners', 'messages', 'promotions', 'review', 'test-video'].sort());
+    expect(ids).toEqual(['curriculum', 'learners', 'messages', 'pricing', 'promotions', 'review', 'test-video'].sort());
   });
 
   it('sorts by group (plan, create, publish) then by order within a group', () => {

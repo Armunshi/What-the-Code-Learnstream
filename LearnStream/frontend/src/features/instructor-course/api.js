@@ -59,3 +59,17 @@ export async function updateCourseLearners(courseId, payload) {
     throw err;
   }
 }
+
+// Same editVersion-guarded shape as updateCourseLearners above — see
+// instructorPricing.routes.js.
+export async function updateCoursePricing(courseId, payload) {
+  try {
+    const res = await privateClient.patch(`/instructor/courses/${courseId}/pricing`, payload);
+    return { conflict: false, course: res.data.data.course };
+  } catch (err) {
+    if (err?.response?.status === 409) {
+      return { conflict: true, current: err.response.data.current };
+    }
+    throw err;
+  }
+}
