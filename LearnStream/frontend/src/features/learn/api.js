@@ -24,3 +24,24 @@ export async function completeItem(courseId, itemId) {
   const { data } = await privateClient.post(`/learn/${courseId}/items/${itemId}/complete`, {});
   return data.data;
 }
+
+// The assignment item type's own material/submission endpoints live under
+// /courses, not /learn (backend/src/routes/CourseRoutes/assignments.routes.js)
+// — pre-dating the /learn tree, but still the only place this data lives.
+// An assignment CurriculumItem's `id` is the same _id as the underlying
+// Assignment document (services/curriculum/sync.js preserves it on purpose),
+// so `itemId` here is exactly the `assignmentId` these routes expect.
+export async function getAssignmentDetail(courseId, assignmentId) {
+  const { data } = await privateClient.get(`/courses/${courseId}/assignments/${assignmentId}`);
+  return data.data;
+}
+
+export async function submitAssignmentFiles(courseId, assignmentId, files) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("submissionFiles", file));
+  const { data } = await privateClient.post(
+    `/courses/${courseId}/assignments/${assignmentId}/upload`,
+    formData
+  );
+  return data.data;
+}

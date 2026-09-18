@@ -84,7 +84,12 @@ export const submitAssignment = async (assignment, { studentId, files }) => {
 
 /** An assignment as one student should see it — their own submissions only. */
 export const getAssignmentForStudent = async (assignmentId, studentId) => {
-    const assignment = await Assignments.findById(assignmentId).select("-module_id -assignmentUrls");
+    // `assignmentUrls` is the teacher's own material for this assignment
+    // (instructions/sample files uploaded via createAssignment) — a student
+    // needs it to know what to submit, so it must NOT be excluded here the
+    // way `module_id` (an internal reference, not something the frontend
+    // renders) is.
+    const assignment = await Assignments.findById(assignmentId).select("-module_id");
     if (!assignment) throw new ApiError(404, "The Assignment Requested was not found");
 
     const plain = assignment.toObject();
