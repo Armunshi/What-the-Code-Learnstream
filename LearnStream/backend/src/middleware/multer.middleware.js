@@ -27,6 +27,7 @@ const allowedMimeTypes = [
   "audio/mpeg", "audio/wav",                // Audio
   "video/mp4", "video/avi", "video/mkv",    // Video
   "application/pdf",
+  "text/plain", "text/vtt", "application/x-subrip", // Lecture transcripts (.txt/.vtt/.srt)
 ];
 
 const fileFilter = (req, file, cb) => {

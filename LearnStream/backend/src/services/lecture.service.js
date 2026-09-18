@@ -74,9 +74,35 @@ export const updateLectureDetails = async (lecture, { title, enableFreePreview, 
     return lecture;
 };
 
+/**
+ * Uploads (or replaces) a lecture's transcript file. Plumbing only — nothing
+ * reads or processes this yet; it exists so a future lecture-level RAG
+ * chatbot has somewhere to pull its source documents from.
+ */
+export const uploadLectureTranscript = async (lecture, transcriptLocalPath) => {
+    if (lecture.transcriptPublicId) {
+        await deleteMediaFromCloudinary(lecture.transcriptPublicId, lecture.transcriptResourceType);
+    }
+
+    const uploaded = await uploadOnCloudinary(transcriptLocalPath);
+    if (!uploaded?.secure_url) {
+        throw new ApiError(400, "Transcript was not uploaded properly to Cloudinary");
+    }
+
+    lecture.transcriptUrl = uploaded.secure_url;
+    lecture.transcriptPublicId = uploaded.public_id;
+    lecture.transcriptResourceType = uploaded.resource_type;
+    await lecture.save();
+
+    return lecture;
+};
+
 /** Deletes a lecture, its Cloudinary asset, and the ids pointing at it. */
 export const deleteLectureWithMedia = async (course, module, lecture) => {
     await deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type);
+    if (lecture.transcriptPublicId) {
+        await deleteMediaFromCloudinary(lecture.transcriptPublicId, lecture.transcriptResourceType);
+    }
 
     course.lectures = course.lectures.filter((id) => !id.equals(lecture._id));
     await course.save();

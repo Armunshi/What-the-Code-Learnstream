@@ -83,7 +83,7 @@ export const getCourseWithModules = async (courseId) => {
     const course = await Courses.findById(courseId).populate({
         path: "modules",
         populate: [
-            { path: "lectures", select: "title duration freePreview public_id " },
+            { path: "lectures", select: "title duration freePreview public_id transcriptUrl" },
             { path: "assignments", select: "title deadline public_id " },
         ],
     });
