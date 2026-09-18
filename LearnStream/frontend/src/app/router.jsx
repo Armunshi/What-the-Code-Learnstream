@@ -10,7 +10,6 @@ import SignupS from '../Pages/Signup-students.jsx';
 import SignupT from '../Pages/Signup-Teacher.jsx';
 import Teachers from '../Pages/TeachersPage.jsx';
 import Student from '../Pages/StudentPage.jsx';
-import Home from '../Pages/Home.jsx';
 import MakeaCourse from '../Pages/MakeaCourse.jsx';
 import ViewtheModules from '../Pages/ViewtheModules.jsx';
 import LectureAssig from '../Pages/LectureAssig.jsx';
@@ -39,9 +38,30 @@ import TeacherProfile from '../Pages/TeacherProfile.jsx';
 // it always won and made PublicProfilePage unreachable. Both now live behind
 // one entry, features/profile/routes.jsx's "user/:idOrUsername", which
 // branches on the value (app/UserOrCourseRoute.jsx) instead of colliding.
+// "/" and "cart/" are deliberately NOT here — both used to be thin
+// pass-throughs to the same pages features/catalog's and features/commerce's
+// own registry entries already render (Pages/Home.jsx and Pages/Cart.jsx's
+// own comments documented this exactly, as "starts working on its own ...
+// whenever a later wave's cleanup removes the legacy entry"). Keeping them
+// meant the home page and the cart page rendered under this file's <Layout/>
+// (Navbar1's older, simpler avatar/menu — no initials beyond the first
+// letter, no "Instructor dashboard" link, no registry-driven menu groups)
+// instead of RootLayout's SiteHeader every other page uses, which is exactly
+// why the header/avatar looked different depending on which page you were
+// on. Removing them lets the two feature-registry entries below (already
+// registered, previously just shadowed by array order) take over with no
+// other code change.
+// Pathless (no `path` prop) rather than `path="/"`: a layout route with an
+// explicit path still matches that path on its own, rendering with an empty
+// <Outlet/>, even once none of its children match it — which is exactly what
+// broke the home page just now. Once "/" was removed as a child here, this
+// wrapper kept "winning" the match for "/" against featureRoutes' real
+// HomePage entry below, rendering Navbar1 + Footer around nothing. A
+// pathless route (the same pattern RootLayout already uses) only ever
+// renders when one of ITS OWN children matches, so it now correctly steps
+// aside for "/" and "cart/" instead of shadowing them with a blank page.
 const legacyRoutes = createRoutesFromElements(
-  <Route path="/" element={<Layout />}>
-    <Route path="/" element={<Home />} />
+  <Route element={<Layout />}>
     <Route path="login" element={<LoginPage />} />
     <Route path="login/student" element={<LoginS />} />
     <Route path="login/teacher" element={<LoginT />} />
@@ -74,7 +94,6 @@ const legacyRoutes = createRoutesFromElements(
         </LegacyUserRoute>
       }
     />
-    <Route path="cart/" element={<Cart />} />
   </Route>
 );
 
