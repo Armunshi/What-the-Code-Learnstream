@@ -5,6 +5,7 @@ import { Modules } from "../models/module.model.js";
 import { Progress } from "../models/progress.model.js";
 import { deleteMediaFromCloudinary, uploadOnCloudinary } from "./media.service.js";
 import { upsertVideoItem, removeItem } from "./curriculum/sync.js";
+import { ingestLectureTranscript } from "./rag/ingestTranscript.js";
 
 /** Uploads the video, creates the lecture, and links it from module and course. */
 export const addLectureToModule = async (course, module, { title, videoLocalPath }) => {
@@ -75,9 +76,10 @@ export const updateLectureDetails = async (lecture, { title, enableFreePreview, 
 };
 
 /**
- * Uploads (or replaces) a lecture's transcript file. Plumbing only — nothing
- * reads or processes this yet; it exists so a future lecture-level RAG
- * chatbot has somewhere to pull its source documents from.
+ * Uploads (or replaces) a lecture's transcript file, then (re-)indexes it
+ * into the RAG vector store — ingestLectureTranscript reads content back
+ * from lecture.transcriptUrl, so this must run after the save below, not
+ * before or in parallel with it.
  */
 export const uploadLectureTranscript = async (lecture, transcriptLocalPath) => {
     if (lecture.transcriptPublicId) {
@@ -93,6 +95,19 @@ export const uploadLectureTranscript = async (lecture, transcriptLocalPath) => {
     lecture.transcriptPublicId = uploaded.public_id;
     lecture.transcriptResourceType = uploaded.resource_type;
     await lecture.save();
+
+    // Best-effort: the transcript itself is already uploaded and saved at
+    // this point, so a flaky embedding provider or an unreachable Qdrant
+    // must not turn a successful transcript upload into a 500 for the
+    // teacher — same reasoning as deleteAssignmentWithMedia's Cloudinary
+    // cleanup below. The teacher isn't told ingestion failed; that's a real
+    // gap (worth a status field or a retry path later), not an oversight
+    // being silently accepted as the final word here.
+    try {
+        await ingestLectureTranscript(lecture);
+    } catch (error) {
+        console.error(`RAG ingestion failed for lecture ${lecture._id}:`, error?.message ?? error);
+    }
 
     return lecture;
 };
