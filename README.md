@@ -171,8 +171,6 @@ List down all the fully implemented features in your project
 List down all the future plans for the project here
 
 - LiveStream Lectures for Students
-- Implement Payment Integration And Allow Teachers to Charge for Courses.
-- A Rating System For Courses.
 - Implement AI Based Assesment of Submitted Assignments
 
 ## 💸Applications
