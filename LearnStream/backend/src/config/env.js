@@ -131,6 +131,48 @@ const config = {
   // reads, the same reasoning as `razorpay.webhookSecret` above. AUTH's own
   // lane is responsible for requiring a non-default value before it ships.
   otpSecret: optional("OTP_SECRET", "dev-only-otp-secret-change-me"),
+  // Embedding + generation providers for the RAG chat assistant — Hugging
+  // Face's hosted Inference API, called through the official
+  // @huggingface/inference SDK (config/huggingface.js), not a self-hosted
+  // model. apiToken/embeddingModel are optional for the same reason as
+  // qdrant below; chatModel now backs a real route (lectures ".../ask").
+  huggingFace: {
+    // A fine-grained token with "Make calls to Inference Providers"
+    // permission (huggingface.co/settings/tokens) — every request 401s
+    // without one, even against the free tier.
+    apiToken: optional("HF_API_TOKEN", ""),
+    // BAAI/bge-base-en-v1.5: MIT-licensed, confirmed "warm" (ready, no cold
+    // start) on HF's free hf-inference provider as of this writing, 768-dim
+    // output. Swapping models means also updating QDRANT_EMBEDDING_DIM to
+    // match — the two are not derived from each other on purpose, so a
+    // model change can't silently desync an already-populated collection.
+    embeddingModel: optional("HF_EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5"),
+    // Qwen/Qwen2.5-7B-Instruct: Apache-2.0 (ungated — no license click-through
+    // needed before the API will serve it, unlike the Llama family), and
+    // confirmed "warm" on hf-inference as of this writing. Generates the
+    // chat assistant's answers from the transcript chunks search.js retrieves.
+    chatModel: optional("HF_CHAT_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
+  },
+  // Vector store for the lecture-transcript RAG chat assistant (Phase 1 of
+  // the AI feature plan — nothing reads these yet, this just gives the
+  // Qdrant client and init script somewhere to read config from). Optional
+  // for the same reason smtpUrl/razorpay.webhookSecret are: promoting these
+  // to `required` would stop the whole server from booting over a feature
+  // that isn't wired into any route yet.
+  qdrant: {
+    url: optional("QDRANT_URL", "http://localhost:6333"),
+    // Blank for the local Docker Compose instance (docker-compose.yml sets
+    // no API key either) — required once Qdrant is reachable off localhost.
+    apiKey: optional("QDRANT_API_KEY", ""),
+    collection: optional("QDRANT_COLLECTION", "lecture_transcript_chunks"),
+    // Must match the output size of `huggingFace.embeddingModel` above —
+    // 768 is BAAI/bge-base-en-v1.5's. Update both together if the model
+    // ever changes.
+    embeddingDim: (() => {
+      const parsed = Number(optional("QDRANT_EMBEDDING_DIM", "768"));
+      return Number.isInteger(parsed) && parsed > 0 ? parsed : 768;
+    })(),
+  },
   // e2e-only scaffolding, gated by isProduction below wherever it's read
   // (see app.js's routes/test/* mount and the mail-outbox helper AUTH adds) —
   // "falsy by default" is what keeps these out of every real deployment.

@@ -36,6 +36,16 @@ export async function getAssignmentDetail(courseId, assignmentId) {
   return data.data;
 }
 
+// Flat route (backend/src/routes/CourseRoutes/lectures.routes.js) —
+// deliberately /courses/lectures/:id, not nested under a course/module path,
+// because a video CurriculumItem's `id` (itemId here) is the same _id as
+// the underlying Lecture document, and that's the only id the chat panel
+// has on hand. Returns { answer, grounded, citations: [{startSec, endSec, score}] }.
+export async function askLectureQuestion(lectureId, question) {
+  const { data } = await privateClient.post(`/courses/lectures/${lectureId}/ask`, { question });
+  return data.data;
+}
+
 export async function submitAssignmentFiles(courseId, assignmentId, files) {
   const formData = new FormData();
   files.forEach((file) => formData.append("submissionFiles", file));

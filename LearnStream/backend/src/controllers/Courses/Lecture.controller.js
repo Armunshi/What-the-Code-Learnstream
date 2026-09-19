@@ -2,6 +2,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import * as lectureService from "../../services/lecture.service.js";
+import { askAboutLecture } from "../../services/rag/askLecture.js";
 
 // req.course / req.module / req.lecture were resolved AND authorized by the
 // route's requireCourseOwner or requireEnrollment guard. Nothing here
@@ -41,6 +42,16 @@ const uploadTranscript = asyncHandler(async (req, res) => {
     const lecture = await lectureService.uploadLectureTranscript(req.lecture, transcriptLocalPath);
 
     return res.status(200).json(new ApiResponse(200, lecture, "Transcript uploaded successfully"));
+});
+
+const askLecture = asyncHandler(async (req, res) => {
+    // requireEnrollment('lecture') already refused this request unless the
+    // caller owns or is enrolled in the course — same guard getLectureById
+    // uses, since an answer built from the transcript is exactly the kind
+    // of paid content §1.1 is about.
+    const result = await askAboutLecture({ lectureId: req.lecture._id, question: req.body.question });
+
+    return res.status(200).json(new ApiResponse(200, result, "Answered"));
 });
 
 const deleteLecture = asyncHandler(async (req, res) => {
@@ -95,6 +106,7 @@ export {
     addLecture,
     updateLecture,
     uploadTranscript,
+    askLecture,
     deleteLecture,
     getLectureById,
     getAllLectures,
