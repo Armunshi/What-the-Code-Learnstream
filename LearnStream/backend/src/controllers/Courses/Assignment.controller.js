@@ -34,7 +34,7 @@ const submitAssignment = asyncHandler(async (req, res) => {
         files,
     });
 
-    return res.status(200).json(new ApiResponse(200, {}, "submittedAssignment Succesfully"));
+    return res.status(200).json(new ApiResponse(200, {}, "submittedAssignment Successfully"));
 });
 
 const getAssignmentById = asyncHandler(async (req, res) => {
@@ -43,20 +43,20 @@ const getAssignmentById = asyncHandler(async (req, res) => {
         req.user._id
     );
 
-    return res.status(200).json(new ApiResponse(200, assignment, "Assignment sent succesfully"));
+    return res.status(200).json(new ApiResponse(200, assignment, "Assignment sent successfully"));
 });
 
 const deleteAssignment = asyncHandler(async (req, res) => {
     await assignmentService.deleteAssignmentWithMedia(req.course, req.module, req.assignment);
 
-    return res.status(200).json(new ApiResponse(200, null, "Assignment deleted succesfully"));
+    return res.status(200).json(new ApiResponse(200, null, "Assignment deleted successfully"));
 });
 
 const getStudentsAndUploadedAssignments = asyncHandler(async (req, res) => {
     const submissions = await assignmentService.getSubmissions(req.assignment);
 
     return res.status(200).json(
-        new ApiResponse(200, submissions, "Students and Their Assignments sent Succesfully")
+        new ApiResponse(200, submissions, "Students and Their Assignments sent Successfully")
     );
 });
 

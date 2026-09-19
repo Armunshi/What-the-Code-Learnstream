@@ -1,73 +1,29 @@
-import axios from '../api/axios.js';
-import React, { useEffect, useState } from 'react';
-import { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AuthContext from '../contexts/AuthProvider.jsx';
+import { useCart } from '@/features/commerce';
 
-function AddToCartBtn({ course_id,enrolled }) {
-  const [inCart, setInCart] = useState(false);
-  const {auth,setAuth} = useContext(AuthContext)
-  const token = auth?.accessToken
+// Legacy standalone add-to-cart button. No current caller — CAT/COM's
+// course page and popover use <PurchaseCta/> instead (docs/contracts/
+// stubs.md), which is the frozen contract other lanes render. Kept working
+// against the current useCart() facade in case a future page still wants a
+// bare button rather than the full PurchaseCta state machine.
+function AddToCartBtn({ course_id, enrolled }) {
+  const cart = useCart();
   const navigate = useNavigate();
+  const inCart = cart.has(course_id);
 
-  const checkPresence = async () => {
-    try {
-        // console.log(token);
-      const response = await axios.get(`/courses/cart/${course_id}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        withCredentials: true,
-      });
-      const temp=response.data?.data?.inCart
-      console.log(response.data);
-      
-      console.log(`${temp}`);
-      setInCart(temp);
-    //   console.log(`kjsef;sj${inCart}`)
-    } catch (err) {
-      console.error("Error checking cart presence:", err);
+  const handleClick = () => {
+    if (inCart) {
+      navigate('/cart');
+      return;
     }
+    cart.add({ id: course_id });
   };
-
-  useEffect(() => {
-    
-      checkPresence();
-    
-  }, [course_id, token]);
-
-  const handleClick = async () => {
-  if (inCart && !enrolled) {
-    navigate('/cart')
-    
-  } else {
-    try {
-      const response = await axios.post(
-        `/courses/cart/${course_id}`,
-        {},
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          withCredentials: true,
-        }
-      );
-      console.log(response.data);
-      setInCart(true);
-    } catch (err) {
-      console.error("Error adding to cart:", err);
-    }
-  }
-};
-
 
   return (
     <button
       className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
       onClick={handleClick}
-      disabled = {enrolled}
+      disabled={enrolled}
     >
       {inCart ? 'Go to Cart' : 'Add to Cart'}
     </button>

@@ -15,5 +15,7 @@ export default async function globalTeardown(): Promise<void> {
     await runtime.mongod.stop();
   }
 
-  console.log('[e2e teardown] done — :8000 is free again.');
+  console.log(
+    `[e2e teardown] done — :${process.env.E2E_BACKEND_PORT ?? '8000'} is free again.`
+  );
 }

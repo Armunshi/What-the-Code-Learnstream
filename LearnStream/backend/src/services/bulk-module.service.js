@@ -134,19 +134,14 @@ const rollback = async (created) => {
 export const createModulesBulk = async (course, modulesSpec, files) => {
     const filesByField = groupFilesByField(files);
 
-    const problems = validate(modulesSpec, filesByField);
-    if (problems.length > 0) {
-        // Nothing was written yet, but multer has already saved these to
-        // disk — clean up rather than leave them for the next request's video
-        // to accidentally collide with (multer.middleware.js keeps the
-        // original filename, not a random one).
-        await Promise.allSettled(files.map((file) => fs.unlink(file.path)));
-        throw new ApiError(400, `Cannot submit: ${problems.join("; ")}`);
-    }
-
     const created = { modules: [], lectures: [], assignments: [] };
 
     try {
+        const problems = validate(modulesSpec, filesByField);
+        if (problems.length > 0) {
+            throw new ApiError(400, `Cannot submit: ${problems.join("; ")}`);
+        }
+
         for (let mi = 0; mi < modulesSpec.length; mi++) {
             const spec = modulesSpec[mi];
             const module = await moduleService.createModule(course, {
@@ -180,6 +175,26 @@ export const createModulesBulk = async (course, modulesSpec, files) => {
         throw error instanceof ApiError
             ? error
             : new ApiError(500, "Could not create modules; nothing was saved and any uploads were rolled back.");
+    } finally {
+        // Every temp file multer saved to disk, cleaned up regardless of how
+        // this call ends. A lecture/assignment that finished uploading
+        // already unlinked its own file (media.service.js) — this only
+        // catches what's left: files that were never uploaded because
+        // validation failed, or because a LATER item in the same submission
+        // failed first and the ones after it in the loop never ran.
+        // multer.middleware.js keeps each file's original name rather than
+        // randomising it, so a leftover here is also a name collision
+        // waiting to happen on someone's next upload, not just wasted disk.
+        await Promise.allSettled(
+            files.map(async (file) => {
+                try {
+                    await fs.access(file.path);
+                    await fs.unlink(file.path);
+                } catch {
+                    // Already gone — the normal, successful case.
+                }
+            })
+        );
     }
 
     return moduleService.getCourseWithModules(course._id);

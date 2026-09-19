@@ -13,10 +13,12 @@ import { env } from "../config/env.js";
 import "../models/assignment.model.js";
 import "../models/cart.model.js";
 import "../models/course.model.js";
+import "../models/curriculumItem.model.js";
 import "../models/lecture.model.js";
 import "../models/module.model.js";
 import "../models/order.model.js";
 import "../models/progress.model.js";
+import "../models/section.model.js";
 import "../models/user.model.js";
 
 const connectDB = async () => {

@@ -1,0 +1,29 @@
+{
+  "lane": "w0-b",
+  "name": "Backend contracts, migrations, adapters",
+  "wave": 0,
+  "parallelWith": [
+    "w0-a",
+    "w0-c"
+  ],
+  "dependsOn": [],
+  "owns": [
+    "backend/package.json",
+    "backend/package-lock.json",
+    "backend/src/app.js",
+    "backend/src/config/**",
+    "backend/src/models/**",
+    "backend/src/middleware/**",
+    "backend/src/utils/**",
+    "backend/src/services/**",
+    "backend/src/routes/**",
+    "backend/scripts/migrate-w0-*",
+    "backend/scripts/backfill-w0-*",
+    "backend/tests/factories/core.js",
+    "backend/tests/regressions/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Only lane allowed to change backend/package.json + lockfile in Wave 0. Owns all D1-D3 models, the four W0 migrations, and rewrites legacy module/lecture/bulk-module/assignment/enrollment/course services as adapters over the new model. Merges first (merge order W0-B -> W0-C -> W0-A)."
+}

@@ -1,0 +1,22 @@
+{
+  "lane": "rev",
+  "name": "Reviews, ratings, votes, social proof",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/models/review.model.js",
+    "backend/src/models/reviewVote.model.js",
+    "backend/src/services/reviews/**",
+    "backend/src/routes/features/reviews.routes.js",
+    "backend/src/routes/features/stats.routes.js",
+    "backend/src/validation/review.schemas.js",
+    "backend/scripts/seed-demo-reviews.js",
+    "frontend/src/features/reviews/**"
+  ],
+  "appends": [
+    "e2e/seeds/reviews.seed.ts"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Replaces CourseRatingHeaderMetric/CourseReviewsSection/HomeSocialProof stub bodies (frozen signatures). Wave 1 merge order: 3rd."
+}

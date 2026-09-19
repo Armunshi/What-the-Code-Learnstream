@@ -1,0 +1,36 @@
+{
+  "lane": "shell",
+  "name": "Authoring shell, plan step, readiness, publish",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/routes/features/instructorCourses.routes.js",
+    "backend/src/routes/features/instructorLearners.routes.js",
+    "backend/src/routes/features/readiness.routes.js",
+    "backend/src/services/instructor/course.service.js",
+    "backend/src/services/readiness/index.js",
+    "backend/src/services/readiness/rules/base.rule.js",
+    "backend/src/services/readiness/rules/learners.rule.js",
+    "frontend/src/features/instructor-course/**",
+    "frontend/src/Pages/TeachersPage.jsx",
+    "frontend/src/Pages/MakeaCourse.jsx",
+    "docs/lanes/shell.json"
+  ],
+  "excludes": [
+    "frontend/src/features/instructor-course/steps/<id>/** (owned per-step by the lane that adds it)",
+    "frontend/src/features/instructor-course/content-types/<type>/** (owned per-type by the lane that adds it)",
+    "frontend/src/features/instructor-course/item-editor-panels/* (owned per-panel by the lane that adds it)"
+  ],
+  "appends": [
+    "backend/tests/features/instructor-*.test.js",
+    "e2e/tests/authoring-shell.spec.ts"
+  ],
+  "hostsRegistries": [
+    "frontend/src/features/instructor-course/steps/*",
+    "frontend/src/features/instructor-course/content-types/*",
+    "frontend/src/features/instructor-course/item-editor-panels/*",
+    "backend/src/services/readiness/rules/*.rule.js"
+  ],
+  "handsOffToWave1": [],
+  "notes": "Owns the authoring shell around the three registries it hosts, but never the entries lanes add to those registries. Wave 1 merge order: 8th. w1.0-amendment (this lane): the original manifest had no glob for this lane's own test files (no backend/tests/** or e2e/** entry at all — a gap every Wave 1 lane's manifest shares, not specific to SHELL). Added `docs/lanes/shell.json` to owns (so this amendment itself is in-manifest) and two narrow appends for the backend unit tests and the e2e spec required by this lane's definition of done."
+}

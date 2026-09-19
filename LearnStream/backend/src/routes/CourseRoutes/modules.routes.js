@@ -1,6 +1,7 @@
 import {Router} from 'express'
 import { requireRole, verifyAuth } from "../../middleware/auth.js";
 import { ROLES } from "../../models/user.model.js";
+import { uploadVideo } from "../../middleware/multer.middleware.js";
 import { upload } from "../../middleware/multer.middleware.js";
 
 import { requireCourseOwner } from "../../middleware/requireCourseOwner.js";

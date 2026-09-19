@@ -1,0 +1,22 @@
+{
+  "lane": "quiz",
+  "name": "Quizzes and practice tests",
+  "wave": 3,
+  "dependsOn": [
+    "curr",
+    "learn"
+  ],
+  "owns": [
+    "backend/src/models/quiz.model.js",
+    "backend/src/models/quizAttempt.model.js",
+    "backend/src/routes/features/instructorQuiz.routes.js",
+    "backend/src/routes/features/learnQuiz.routes.js",
+    "backend/src/services/readiness/rules/quiz.rule.js",
+    "frontend/src/features/instructor-course/content-types/quiz/**",
+    "frontend/src/features/learn/renderers/quiz/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Wave 3 merge order: 1st."
+}

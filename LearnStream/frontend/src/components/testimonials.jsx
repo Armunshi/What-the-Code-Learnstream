@@ -1,5 +1,3 @@
-import React from "react";
-
 const testimonials = [
   {
     id: 1,
@@ -44,7 +42,7 @@ const Testimonials = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {testimonials.map((testimonial) => (
           <div key={testimonial.id} className="bg-white p-6 rounded-lg shadow-md">
-            <p className="text-gray-700 italic">"{testimonial.text}"</p>
+            <p className="text-gray-700 italic">&quot;{testimonial.text}&quot;</p>
             <div className="flex items-center mt-4">
               <img
                 src={testimonial.image}

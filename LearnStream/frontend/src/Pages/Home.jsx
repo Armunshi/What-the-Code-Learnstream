@@ -1,90 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import GeneralCourses from "../components/GeneralCourses";
-import LearningGoals from "../components/udemycomponent";
-import Testimonials from "../components/testimonials";
-import { useContext } from "react";
-import AuthContext from "../contexts/AuthProvider";
-import axios from "../api/axios";
+import { HomePage } from '@/features/catalog/pages/HomePage.jsx';
 
-const Home = () => {
-  const courseDiv = useRef(null);
-  const [course_id, setCourse_id] = useState("");
-  const [courseCount, setCourseCount] = useState(null);
-  const view = `View Course`;
-  const navigate = useNavigate();
-  const viewCourse = (course_id) => {
-    navigate(`/user/${course_id}`);
-  };
-  const {auth,setAuth}  = useContext(AuthContext)
-  const {user_id} = auth
-
-  useEffect(() => {
-    const fetchCourseCount = async () => {
-      try {
-        const response = await axios.get("/courses/getallCourses");
-        setCourseCount(response.data?.data?.length ?? null);
-      } catch {
-        setCourseCount(null);
-      }
-    };
-    fetchCourseCount();
-  }, []);
-
-  return (
-    <>
-      <section
-        className="relative bg-[url('/assets/HeroImg.png')] bg-cover bg-center bg-no-repeat min-h-[500px] h-[90vh] w-full"
-      >
-        <div className=" absolute inset-0 bg-gradient-to-r from-black/75 to-transparent/0"></div>
-        <div className="relative mx-auto max-w-screen-xl px-4 py-32 sm:px-6 lg:flex lg:h-screen lg:items-center lg:px-8">
-          <div className="max-w-xl text-center ltr:sm:text-left">
-            <h1 className="text-4xl font-extrabold sm:text-6xl">
-              Transform Your Education Journey.
-            </h1>
-            <p className="mt-4 max-w-lg sm:text-xl/relaxed ">
-              Take the first step toward mastering new skills and broadening
-              your horizons.
-            </p>
-            {courseCount !== null && (
-              <p className="mt-4 text-sm font-medium text-white/90">
-                {courseCount}+ courses ready to explore
-              </p>
-            )}
-            <div className="mt-8 flex flex-wrap gap-4 text-center justify-center">
-              <Link
-                to={user_id ? "#" : "/login"}
-                className="block w-full rounded bg-[#588157] px-12 py-3 text-sm font-medium text-white shadow hover:bg-[#137dc7] focus:outline-none focus:ring sm:w-auto hover:text-black"
-              >
-                Get Started
-              </Link>
-
-              <a
-                href="#courses"
-                className="block w-full rounded bg-white px-12 py-3 text-sm font-medium text-black shadow hover:text-black focus:outline-none focus:ring sm:w-auto"
-              >
-                Learn More
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div id="courses" ref={courseDiv} className="scroll-mt-20 py-10">
-        <div className="max-w-container mx-auto px-4 md:px-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900">Courses</h2>
-          <GeneralCourses
-            setCourse_id={setCourse_id}
-            ButtonName={view}
-            buttonHandler={viewCourse}
-          />
-        </div>
-        <LearningGoals/>
-          <br />
-          <Testimonials/>
-      </div>
-    </>
-  );
-};
+// app/router.jsx (frozen after Wave 0) still serves "/" through this legacy
+// page rather than the features/catalog/routes.jsx registry entry — see that
+// file's own comment for why. The real implementation lives in
+// features/catalog/pages/HomePage.jsx; this is a thin pass-through so the
+// legacy route renders it.
+//
+// This also closes the known bug this file used to have: Home.jsx rendered
+// <GeneralCourses/> without passing it `setErrMsg`, so a failed category/
+// course fetch there had nowhere to put its error message. HomePage doesn't
+// use GeneralCourses at all (it fetches through TanStack Query and renders
+// CategoryTabs/CourseGrid instead), so that call site — and the bug with it
+// — no longer exists.
+export function Home() {
+  return <HomePage />;
+}
 
 export default Home;

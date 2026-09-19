@@ -1,73 +1,41 @@
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { meSummaryKeys } from '@/features/commerce/queryKeys';
+import { enrollFreeCourse, fetchMeSummary } from '@/features/commerce/api';
 
-import { useContext } from 'react';
-import axios from '../api/axios.js';
-import  { useEffect, useState } from 'react';
-import AuthContext from '../contexts/AuthProvider.jsx';
-
-const EnrollButton = ({ course_id ,setEnroll }) => {
+// Legacy standalone enroll button. No current caller — the course page uses
+// <PurchaseCta/> instead (docs/contracts/stubs.md), which is the frozen
+// contract other lanes render for D10's full state machine (owner/enrolled/
+// free/paid/teacher). Kept working against the current
+// GET /users/me/summary + POST /courses/:courseId/enroll contract in case a
+// future page still wants a bare enroll button.
+const EnrollButton = ({ course_id, setEnroll }) => {
+  const queryClient = useQueryClient();
   const [isDisabled, setIsDisabled] = useState(false);
-  const [Enrolled, setEnrolled] = useState(false);
-  const {auth,setAuth} = useContext(AuthContext)
-  const token = auth?.accessToken
-  const checkEnrolled = async () => {
-    try {
-      const response = await axios.get(`/courses/${course_id}/enrolled`, {
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` 
-        },
-        withCredentials: true,
-      });
 
-      console.log(response.data.data);
-      setEnrolled(response.data.data);
-      setEnroll(response.data.data); // ✅ Store boolean value in state
+  const { data: summary } = useQuery({ queryKey: meSummaryKeys.all, queryFn: fetchMeSummary });
+  const enrolled = (summary?.enrolledCourseIds ?? []).includes(course_id);
 
-    } catch (error) {
-      console.log(error);
-    }
-  };
   useEffect(() => {
-    
-        checkEnrolled();
-    // console.log("prajyot");
-    
-  }, [token,course_id]); // ✅ Run only once when component mounts
-  
-  const enrollStudent = async () => {
-    try {
-      if (!Enrolled) {
-        const response = await axios.post(`/courses/${course_id}/enroll`, {}, {
-          headers: { 
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          withCredentials: true,
-        });
+    setEnroll?.(enrolled);
+  }, [enrolled, setEnroll]);
 
-        if (response.data.data === true) {
-        console.log(`enrollment succesfull`)
-          setEnrolled(true);
-          setIsDisabled(true);
-        }
-      } else {
-        setIsDisabled(true);
-      }
-    } catch (error) {
-      console.log(error);
-    }
-  };
-
-  
+  const enrollMutation = useMutation({
+    mutationFn: () => enrollFreeCourse(course_id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: meSummaryKeys.all });
+      setIsDisabled(true);
+    },
+  });
 
   return (
     <div>
       <button
         className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
-        onClick={enrollStudent}
-        disabled={isDisabled || Enrolled} // ✅ Disable button when already enrolled
+        onClick={() => enrollMutation.mutate()}
+        disabled={isDisabled || enrolled || enrollMutation.isPending}
       >
-        {Enrolled ? "Already Enrolled" : "Enroll Now"}
+        {enrolled ? 'Already Enrolled' : 'Enroll Now'}
       </button>
     </div>
   );

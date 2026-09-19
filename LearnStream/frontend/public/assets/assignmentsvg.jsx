@@ -1,5 +1,3 @@
-import React from "react";
-
 const AssignmentIcon = ({ size = 24, color = "black" }) => {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill={color} xmlns="http://www.w3.org/2000/svg">

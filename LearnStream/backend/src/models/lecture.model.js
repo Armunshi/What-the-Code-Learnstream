@@ -28,13 +28,30 @@ const lectureSchema = new Schema({
         type: Boolean,
         default: false
     },
+    // Plumbing for a future lecture-level RAG chatbot: a teacher-uploaded
+    // transcript file (plain text/VTT/SRT for now — no processing happens
+    // here, this just stores where it lives). transcriptResourceType
+    // mirrors `resource_type` above for the same reason: Cloudinary's
+    // destroy() needs the real type back or it silently no-ops.
+    transcriptUrl: {
+        type: String,
+        default: null,
+    },
+    transcriptPublicId: {
+        type: String,
+        default: null,
+    },
+    transcriptResourceType: {
+        type: String,
+        default: null,
+    },
     course_id: {
         type: Schema.Types.ObjectId,
         ref: 'Courses'
     },
     module_id: { // Links lectures to modules
         type: Schema.Types.ObjectId,
-        ref: 'Modules',
+        ref: 'Sections',
         required: true,
     }
 }, {

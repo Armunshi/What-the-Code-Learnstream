@@ -1,0 +1,31 @@
+{
+  "lane": "cat",
+  "name": "Catalog and public course page",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/routes/features/catalog.routes.js",
+    "backend/src/services/catalog/**",
+    "frontend/src/features/catalog/**",
+    "frontend/src/features/course/**",
+    "backend/src/services/course.service.js",
+    "backend/src/controllers/Courses/Course.controller.js",
+    "backend/src/routes/CourseRoutes/courses.routes.js",
+    "frontend/src/Pages/Home.jsx",
+    "frontend/src/Pages/ViewStudentModule.jsx",
+    "frontend/src/components/GeneralCourses.jsx",
+    "frontend/src/components/CategoryBar.jsx",
+    "frontend/src/components/CourseComp.jsx",
+    "e2e/lib/selectors/course.ts",
+    "e2e/tests/course-detail-view.spec.ts",
+    "e2e/tests/course-list-navigation.spec.ts"
+  ],
+  "appends": [
+    "frontend/src/features/catalog/routes.jsx",
+    "frontend/src/features/course/routes.jsx",
+    "e2e/seeds/catalog.seed.ts"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Replaces the CourseCard/CourseGrid stub bodies (frozen signatures, see docs/contracts/stubs.md). catalog.seed.ts must include a free-preview item and a promo video. Wave 1 merge order: 2nd (after UPL)."
+}

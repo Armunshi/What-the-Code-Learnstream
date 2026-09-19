@@ -1,36 +1,9 @@
-import mongoose from 'mongoose';
-const { Schema } = mongoose;
+// Re-export shim (D1, docs/contracts/domain-model.md): the `Modules` model is
+// gone, replaced by `Sections` bound to the same underlying `modules`
+// collection (see section.model.js). This file exists only so any code that
+// still does `import { Modules } from "../models/module.model.js"` keeps
+// working during the Wave 0-3 transition. W4 deletes this file and every
+// remaining `Modules` import along with it.
+import { Sections } from "./section.model.js";
 
-const moduleSchema = new Schema({
-    title: {
-        type: String,
-        required: true
-    },
-    description: {
-        type: String,
-        required: false // Optional module description
-    },
-    course: {
-        type: Schema.Types.ObjectId,
-        ref: 'Courses',
-        required: true
-    },
-    lectures: [{
-        type: Schema.Types.ObjectId,
-        ref: 'Lectures'
-    }],
-    assignments: [{
-        type: Schema.Types.ObjectId,
-        ref: 'Assignments'
-    }]
-}, {
-    timestamps: true
-});
-// This used to carry a `pre('remove')` cascade-delete hook, but document
-// `remove()` was removed entirely in Mongoose 8 — the hook never fired.
-// deleteModule (Modules.controller.js) now does this cascade explicitly
-// instead (BACKEND_AUDIT.md §2.3).
-
-const Modules = mongoose.model('Modules', moduleSchema);
-
-export { Modules };
+export const Modules = Sections;

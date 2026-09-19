@@ -1,0 +1,24 @@
+{
+  "lane": "src",
+  "name": "Search and faceted discovery",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/models/searchQuery.model.js",
+    "backend/src/models/searchEvent.model.js",
+    "backend/src/services/search/**",
+    "backend/src/routes/features/search.routes.js",
+    "backend/src/config/search.js",
+    "backend/src/validation/search.schemas.js",
+    "frontend/src/features/search/**",
+    "e2e/tests/search-suggest.spec.ts",
+    "e2e/tests/search-filters.spec.ts"
+  ],
+  "appends": [
+    "frontend/src/features/search/routes.jsx",
+    "e2e/seeds/search.seed.ts"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "search.routes.js mounts at priority 10 (before the legacy /courses/:courseId catch-all). Replaces the GlobalSearch stub body (frozen signature). search.seed.ts needs courses with varied language, level, captions, duration, price, rating, topics and certification flag, for the 14 FR-SRC-3.2 e2e checks. Wave 1 merge order: 6th."
+}

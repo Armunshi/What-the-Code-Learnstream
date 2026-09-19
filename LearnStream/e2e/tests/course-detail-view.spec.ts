@@ -1,67 +1,85 @@
 import { test, expect } from '../fixtures/test-data.fixture.js';
-import { loginAs } from '../lib/selectors.js';
+import { curriculumItems, previewItemButtons } from '../lib/selectors.js';
 import { KNOWN_CONSOLE_NOISE } from '../lib/console-allowlist.js';
+import { readSeed } from '../lib/seed-registry.js';
 
-test.beforeEach(async ({ page, testData }) => {
-  await loginAs(page, 'student', testData.student);
-});
+interface CatalogSeed {
+  courseId: string;
+  courseTitle: string;
+  category: string;
+  freeLectureId: string;
+}
 
-test.describe('Viewing Course Details (enrolled student)', () => {
-  test('all four on-mount data calls succeed', async ({ page, networkLogger, testData }) => {
-    await page.goto(`/user/${testData.courseId}`);
+// Rewritten for W1-CAT: the marketing/landing course page moved from
+// /user/:courseId (ViewStudentModule.jsx, enrolled-student lecture view) to
+// /course/:courseId (CourseDetailPage.jsx, public landing page — actual
+// lecture-watching is LEARN's /learn/:courseId, not built yet). See
+// Pages/ViewStudentModule.jsx's own comment for why this split is correct
+// rather than a regression.
+test.describe('Viewing the public course page (guest)', () => {
+  test('loads the full landing page — hero, trailer, curriculum — with no auth', async ({ page, networkLogger }) => {
+    const catalog = readSeed<CatalogSeed>('catalog');
+
+    const landingResponse = page.waitForResponse((r) => r.url().includes(`/courses/${catalog.courseId}/landing`));
+    const curriculumResponse = page.waitForResponse((r) => r.url().includes(`/courses/${catalog.courseId}/curriculum`));
+    await page.goto(`/course/${catalog.courseId}`);
+    const [landing, curriculum] = await Promise.all([landingResponse, curriculumResponse]);
+
+    expect(landing.status()).toBe(200);
+    expect(curriculum.status()).toBe(200);
+    // optionalAuth routes: a guest request never carries a token to attach.
+    expect(landing.request().headers()['authorization']).toBeUndefined();
+
+    await expect(page.getByRole('heading', { name: catalog.courseTitle })).toBeVisible();
+    await expect(page.getByTestId('course-trailer-trigger')).toBeVisible();
+
     await page.waitForLoadState('networkidle');
-
-    const entries = networkLogger.getEntries();
-    const mustSucceed = [
-      `/courses/${testData.courseId}/modules`,
-      `/courses/${testData.courseId}/`,
-      `/courses/${testData.courseId}/progress`,
-      `/courses/${testData.courseId}/enrolled`,
-    ];
-
-    for (const path of mustSucceed) {
-      const calls = entries.filter((e) => e.url.includes(path));
-      expect(calls.length, `expected at least one call to ${path}`).toBeGreaterThanOrEqual(1);
-      expect(
-        calls.every((e) => e.status === 200),
-        `expected every call to ${path} to return 200, got ${calls.map((c) => c.status).join(', ')}`
-      ).toBe(true);
-    }
-
     expect(networkLogger.getConsoleErrors(KNOWN_CONSOLE_NOISE)).toEqual([]);
   });
 
-  test('shows "Already Enrolled" — proves the forged-signature fixture enrollment actually took effect server-side', async ({
-    page,
-    testData,
-  }) => {
-    await page.goto(`/user/${testData.courseId}`);
+  test('curriculum shows a free-preview item with a Preview control and a locked item with none', async ({ page }) => {
+    const catalog = readSeed<CatalogSeed>('catalog');
+    await page.goto(`/course/${catalog.courseId}`);
     await page.waitForLoadState('networkidle');
 
-    const buyButton = page.getByRole('button', { name: 'Already Enrolled' });
-    await expect(buyButton).toBeVisible();
-    await expect(buyButton).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Buy Now' })).not.toBeVisible();
+    await expect(curriculumItems(page)).toHaveCount(2);
+    await expect(previewItemButtons(page)).toHaveCount(1);
+
+    const lockedItem = curriculumItems(page).filter({ hasText: 'Locked lecture' });
+    await expect(lockedItem.getByTestId('preview-item-button')).toHaveCount(0);
+    await expect(lockedItem.getByLabel('Locked')).toBeVisible();
   });
 
-  test('expanding/collapsing a module toggles locally with no additional network call', async ({
-    page,
-    networkLogger,
-    testData,
-  }) => {
-    await page.goto(`/user/${testData.courseId}`);
+  test('a guest can play the free-preview lecture', async ({ page }) => {
+    const catalog = readSeed<CatalogSeed>('catalog');
+    await page.goto(`/course/${catalog.courseId}`);
     await page.waitForLoadState('networkidle');
 
-    const moduleHeader = page.getByRole('button', { name: 'E2E Module 1' });
-    await expect(moduleHeader).toBeVisible();
+    const playbackResponse = page.waitForResponse((r) =>
+      r.url().includes(`/courses/${catalog.courseId}/items/${catalog.freeLectureId}/playback`)
+    );
+    await previewItemButtons(page).click();
+    const response = await playbackResponse;
+    expect(response.status()).toBe(200);
 
-    const countBefore = networkLogger.getEntries().length;
-    await moduleHeader.click(); // expand
-    await expect(page.getByText('E2E Lecture 1')).toBeVisible();
-    await moduleHeader.click(); // collapse
-    await page.waitForTimeout(300); // let any accidental async call surface
-    const countAfter = networkLogger.getEntries().length;
+    const dialog = page.getByTestId('free-preview-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('video')).toBeVisible();
+  });
 
-    expect(countAfter).toBe(countBefore);
+  test('a guest can open the trailer from the sticky preview card', async ({ page }) => {
+    const catalog = readSeed<CatalogSeed>('catalog');
+    await page.goto(`/course/${catalog.courseId}`);
+    await page.waitForLoadState('networkidle');
+
+    await page.getByTestId('course-trailer-trigger').click();
+    await expect(page.locator('video')).toBeVisible();
+  });
+
+  test('the legacy /user/:courseId route redirects to /course/:courseId', async ({ page }) => {
+    const catalog = readSeed<CatalogSeed>('catalog');
+    await page.goto(`/user/${catalog.courseId}`);
+    await page.waitForURL(`**/course/${catalog.courseId}`);
+    await expect(page).toHaveURL(new RegExp(`/course/${catalog.courseId}$`));
   });
 });

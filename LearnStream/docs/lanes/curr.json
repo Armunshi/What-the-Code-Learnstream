@@ -1,0 +1,37 @@
+{
+  "lane": "curr",
+  "name": "Curriculum builder",
+  "wave": 2,
+  "dependsOn": [
+    "shell",
+    "upl"
+  ],
+  "owns": [
+    "backend/src/routes/features/instructorCurriculum.routes.js",
+    "backend/src/services/instructor/curriculum.service.js",
+    "backend/src/services/module.service.js",
+    "backend/src/services/lecture.service.js",
+    "backend/src/services/bulk-module.service.js",
+    "backend/src/services/assignment.service.js",
+    "backend/src/services/stats/curriculumStats.js",
+    "frontend/src/Pages/ViewtheModules.jsx",
+    "frontend/src/Pages/Courseupdatation.jsx",
+    "frontend/src/Pages/UploadedAssignment.jsx",
+    "frontend/src/Pages/Modal.jsx",
+    "frontend/src/components/LectureAssignment.jsx",
+    "frontend/src/components/FileDropzone.jsx",
+    "backend/src/services/readiness/rules/curriculum.rule.js",
+    "frontend/src/features/instructor-course/steps/curriculum/**",
+    "frontend/src/features/instructor-course/steps/structure/**",
+    "frontend/src/features/instructor-course/content-types/video/**",
+    "frontend/src/features/instructor-course/content-types/article/**",
+    "frontend/src/features/instructor-course/content-types/assignment/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [
+    "frontend/src/features/instructor-course/item-editor-panels/*",
+    "frontend/src/features/instructor-course/steps/curriculum/toolbar-actions/*"
+  ],
+  "handsOffToWave1": [],
+  "notes": "Takes over the legacy module/lecture/bulk-module/assignment services and rewrites the W0-B adapters to call the new curriculum service; deletes ViewtheModules/Courseupdatation/LectureAssignment/FileDropzone/Modal once the new builder replaces them. Wave 2 merge order: 1st."
+}

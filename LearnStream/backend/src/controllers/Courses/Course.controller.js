@@ -10,10 +10,14 @@ const createCourse = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Basic info about the course required");
     }
 
-    const thumbnailLocalPath = req.file?.path;
+    // Two named fields now (upload.fields in courses.routes.js), not a
+    // single unnamed file — thumbnail is still required, promoVideo is
+    // optional (see course.service.js's createCourse).
+    const thumbnailLocalPath = req.files?.thumbnail?.[0]?.path;
     if (!thumbnailLocalPath) {
         throw new ApiError(400, "thumbnail file is required");
     }
+    const promoVideoLocalPath = req.files?.promoVideo?.[0]?.path;
 
     const course = await courseService.createCourse(req.user._id, {
         title,
@@ -22,43 +26,46 @@ const createCourse = asyncHandler(async (req, res) => {
         category,
         isLive,
         thumbnailLocalPath,
+        promoVideoLocalPath,
     });
 
-    return res.status(200).json(new ApiResponse(200, course, "created course succesfully"));
+    return res.status(200).json(new ApiResponse(200, course, "created course successfully"));
 });
 
 const getCourseByStudentId = asyncHandler(async (req, res) => {
     const courses = await courseService.getCoursesForStudent(req.user._id);
 
-    return res.status(200).json(new ApiResponse(200, courses, "student courses succesfully sent "));
+    return res.status(200).json(new ApiResponse(200, courses, "student courses successfully sent "));
 });
 
 const getCourseByTeacherId = asyncHandler(async (req, res) => {
     const courses = await courseService.getCoursesForTeacher(req.user._id);
 
-    return res.status(200).json(new ApiResponse(200, courses, "teachercourses succesfully sent "));
+    return res.status(200).json(new ApiResponse(200, courses, "teachercourses successfully sent "));
 });
 
 const getCourseById = asyncHandler(async (req, res) => {
     const course = await courseService.getCourseById(req.params.courseId);
 
-    return res.status(200).json(new ApiResponse(200, course, "course sent succesfully"));
+    return res.status(200).json(new ApiResponse(200, course, "course sent successfully"));
 });
 
 const getCoursesByCategory = asyncHandler(async (req, res) => {
-    const { category } = req.query;
+    const { category, page, limit } = req.query;
 
     if (!category) throw new ApiError(400, "Category is required");
 
-    const courses = await courseService.getCoursesByCategory(category);
+    const courses = await courseService.getCoursesByCategory(category, { page, limit });
 
     return res.status(200).json(new ApiResponse(200, courses, "Courses fetched successfully"));
 });
 
 const getAllCourses = asyncHandler(async (req, res) => {
-    const courses = await courseService.getAllCourses();
+    const { page, limit } = req.query;
 
-    return res.status(200).json(new ApiResponse(200, courses, "Courses Fetched Succesfully"));
+    const courses = await courseService.getAllCourses({ page, limit });
+
+    return res.status(200).json(new ApiResponse(200, courses, "Courses Fetched Successfully"));
 });
 
 const checkEnrollment = asyncHandler(async (req, res) => {
@@ -74,7 +81,7 @@ const getEnrolledStudents = asyncHandler(async (req, res) => {
     const { _id, author, enrolledStudents } = req.course;
 
     return res.status(200).json(
-        new ApiResponse(200, { _id, author, enrolledStudents }, "Succesfully Sent Student Data")
+        new ApiResponse(200, { _id, author, enrolledStudents }, "Successfully Sent Student Data")
     );
 });
 
@@ -112,6 +119,16 @@ const getCourseOwner = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, owner, "Owner fetched successfully"));
 });
 
+const updateCourseStatus = asyncHandler(async (req, res) => {
+    // req.course was resolved and ownership-checked by requireCourseOwner('course').
+    const { status } = req.body;
+    if (!status) throw new ApiError(400, "status is required");
+
+    const course = await courseService.updateCourseStatus(req.course, status);
+
+    return res.status(200).json(new ApiResponse(200, course, "Course status updated successfully"));
+});
+
 export {
     createCourse,
     getCoursesByCategory,
@@ -122,5 +139,6 @@ export {
     getEnrolledStudents,
     checkEnrollment,
     getCourseByTeacherId,
-    getCourseOwner
+    getCourseOwner,
+    updateCourseStatus
 }

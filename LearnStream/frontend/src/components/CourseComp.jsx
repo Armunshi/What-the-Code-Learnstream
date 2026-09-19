@@ -1,7 +1,6 @@
-import React from 'react'
 import { Card } from "flowbite-react";
 // import axios from '../api/axios';
-import { Link,useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { formatINR } from '../utils/money';
 const CourseComp = ({setCourse_id, courses=[],ButtonName,buttonHandler,errRef,errMsg}) => {
   

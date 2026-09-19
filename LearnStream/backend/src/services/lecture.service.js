@@ -4,6 +4,7 @@ import { Lectures } from "../models/lecture.model.js";
 import { Modules } from "../models/module.model.js";
 import { Progress } from "../models/progress.model.js";
 import { deleteMediaFromCloudinary, uploadOnCloudinary } from "./media.service.js";
+import { upsertVideoItem, removeItem } from "./curriculum/sync.js";
 
 /** Uploads the video, creates the lecture, and links it from module and course. */
 export const addLectureToModule = async (course, module, { title, videoLocalPath }) => {
@@ -32,6 +33,12 @@ export const addLectureToModule = async (course, module, { title, videoLocalPath
         throw new ApiError(404, "Course/Module not found or failed to update");
     }
 
+    // Mirrors this write into CurriculumItems (D1), under the SAME _id as the
+    // Lecture document, so the new curriculum/playback endpoints see content
+    // authored through this (still the only authoring UI) endpoint without
+    // waiting for a migration run. See services/curriculum/sync.js.
+    await upsertVideoItem({ lecture, course, module });
+
     return lecture;
 };
 
@@ -52,12 +59,50 @@ export const updateLectureDetails = async (lecture, { title, enableFreePreview, 
     }
 
     await lecture.save();
+
+    // Keep the mirrored CurriculumItem in sync — course/module are only
+    // needed by upsertVideoItem to compute an order for a brand-new item, and
+    // this item already exists, so the module lookup cost is skipped by
+    // reading it fresh only when needed inside sync.js's upsert (module_id is
+    // stable across an update, so re-deriving it here would be redundant).
+    const module = await Modules.findById(lecture.module_id).select("_id course");
+    if (module) {
+        const course = { _id: module.course };
+        await upsertVideoItem({ lecture, course, module });
+    }
+
+    return lecture;
+};
+
+/**
+ * Uploads (or replaces) a lecture's transcript file. Plumbing only — nothing
+ * reads or processes this yet; it exists so a future lecture-level RAG
+ * chatbot has somewhere to pull its source documents from.
+ */
+export const uploadLectureTranscript = async (lecture, transcriptLocalPath) => {
+    if (lecture.transcriptPublicId) {
+        await deleteMediaFromCloudinary(lecture.transcriptPublicId, lecture.transcriptResourceType);
+    }
+
+    const uploaded = await uploadOnCloudinary(transcriptLocalPath);
+    if (!uploaded?.secure_url) {
+        throw new ApiError(400, "Transcript was not uploaded properly to Cloudinary");
+    }
+
+    lecture.transcriptUrl = uploaded.secure_url;
+    lecture.transcriptPublicId = uploaded.public_id;
+    lecture.transcriptResourceType = uploaded.resource_type;
+    await lecture.save();
+
     return lecture;
 };
 
 /** Deletes a lecture, its Cloudinary asset, and the ids pointing at it. */
 export const deleteLectureWithMedia = async (course, module, lecture) => {
     await deleteMediaFromCloudinary(lecture.public_id, lecture.resource_type);
+    if (lecture.transcriptPublicId) {
+        await deleteMediaFromCloudinary(lecture.transcriptPublicId, lecture.transcriptResourceType);
+    }
 
     course.lectures = course.lectures.filter((id) => !id.equals(lecture._id));
     await course.save();
@@ -66,6 +111,7 @@ export const deleteLectureWithMedia = async (course, module, lecture) => {
     await module.save();
 
     await Lectures.findByIdAndDelete(lecture._id);
+    await removeItem({ itemId: lecture._id, courseId: course._id });
 };
 
 export const listModuleLectures = async (moduleId) => {

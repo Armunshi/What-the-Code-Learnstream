@@ -1,0 +1,17 @@
+{
+  "lane": "consolidation",
+  "name": "Wave 4 consolidation",
+  "wave": 4,
+  "dependsOn": [
+    "quiz",
+    "res",
+    "bulk"
+  ],
+  "owns": [
+    "**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Single lane, sequential, integrator-only: no parallel lanes to conflict with, so ownership is unrestricted. Deletes the /modules, /lectures, /modules/bulk, /assignments adapters and the multer video routes; drops the lectures collection and module.model.js shim; removes react-player, flowbite-react, mdb-react-ui-kit, @mui/icons-material, @fortawesome/fontawesome-free; removes GET /courses/getallCourses and GET /courses?category=; updates REQUIREMENTS.md and BACKEND_AUDIT.md."
+}

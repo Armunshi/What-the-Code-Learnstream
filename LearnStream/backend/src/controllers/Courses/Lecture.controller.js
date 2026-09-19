@@ -34,10 +34,19 @@ const updateLecture = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, lecture, "Lecture updated successfully"));
 });
 
+const uploadTranscript = asyncHandler(async (req, res) => {
+    const transcriptLocalPath = req.file?.path;
+    if (!transcriptLocalPath) throw new ApiError(400, "File not uploaded");
+
+    const lecture = await lectureService.uploadLectureTranscript(req.lecture, transcriptLocalPath);
+
+    return res.status(200).json(new ApiResponse(200, lecture, "Transcript uploaded successfully"));
+});
+
 const deleteLecture = asyncHandler(async (req, res) => {
     await lectureService.deleteLectureWithMedia(req.course, req.module, req.lecture);
 
-    return res.status(200).json(new ApiResponse(200, null, "Lecture deleted succesfully"));
+    return res.status(200).json(new ApiResponse(200, null, "Lecture deleted successfully"));
 });
 
 const getAllLectures = asyncHandler(async (req, res) => {
@@ -85,6 +94,7 @@ const getLecturesCompleted = asyncHandler(async (req, res) => {
 export {
     addLecture,
     updateLecture,
+    uploadTranscript,
     deleteLecture,
     getLectureById,
     getAllLectures,

@@ -1,0 +1,34 @@
+{
+  "lane": "com",
+  "name": "Commerce: guest cart, merge, free enrollment, checkout feedback",
+  "wave": 1,
+  "dependsOn": [],
+  "owns": [
+    "backend/src/routes/features/cart.routes.js",
+    "backend/src/routes/features/enroll.routes.js",
+    "backend/src/services/enrollment.service.js",
+    "backend/src/services/payment.service.js",
+    "backend/src/controllers/Payment.controller.js",
+    "backend/src/controllers/cart.controller.js",
+    "frontend/src/Pages/Cart.jsx",
+    "frontend/src/Pages/displayRazorpay.js",
+    "frontend/src/components/AddToCartBtn.jsx",
+    "frontend/src/components/EnrollButton.jsx",
+    "frontend/src/features/commerce/**",
+    "docs/lanes/com.json"
+  ],
+  "appends": [
+    "frontend/src/features/commerce/routes.jsx",
+    "frontend/src/features/commerce/menu.js",
+    "e2e/seeds/commerce.seed.ts",
+    "backend/tests/features/cart-*.test.js",
+    "backend/tests/features/enroll-*.test.js",
+    "backend/tests/features/checkout-*.test.js",
+    "e2e/tests/guest-cart.spec.ts",
+    "e2e/tests/free-enrollment.spec.ts",
+    "e2e/tests/checkout-redirect.spec.ts"
+  ],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Replaces the PurchaseCta/CartButton/useCart stub bodies (frozen signatures). commerce.seed.ts must include a free published course. Wave 1 merge order: 4th. w1.0-amendment (this lane, same gap W1-SHELL already documented in shell.json): the original manifest had no glob for this lane's own backend unit tests or e2e specs. Added `docs/lanes/com.json` to owns (so this amendment is itself in-manifest) and narrow appends for the backend unit tests and the three e2e specs this lane's definition of done requires. Also flagging a path mismatch found while implementing: this manifest's owns entry for the cart controller (`backend/src/controllers/cart.controller.js`) doesn't match where the pre-existing Wave-0 handoff file actually lives (`backend/src/controllers/Courses/cart.controller.js`, owned by CAT via `routes/CourseRoutes/courses.routes.js`). Rather than edit a file outside this lane's ownership, this lane created a fresh controller at the manifest's literal path and wired it through its own new `routes/features/cart.routes.js`, which mounts ahead of the legacy CourseRouter and wins every request for these paths — see that file's own comments. The old controller and its routes are now unreachable dead code, left in place since this lane may not delete a file it doesn't own."
+}

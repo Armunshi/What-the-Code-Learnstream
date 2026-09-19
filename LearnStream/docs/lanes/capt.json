@@ -1,0 +1,21 @@
+{
+  "lane": "capt",
+  "name": "Captions, transcripts, accessibility",
+  "wave": 2,
+  "dependsOn": [
+    "shell",
+    "upl"
+  ],
+  "owns": [
+    "backend/src/routes/features/instructorCaptions.routes.js",
+    "backend/src/services/captions/vtt.js",
+    "backend/src/services/captions/srtToVtt.js",
+    "backend/src/services/readiness/rules/accessibility.rule.js",
+    "frontend/src/features/instructor-course/steps/captions/**",
+    "frontend/src/features/instructor-course/steps/accessibility/**"
+  ],
+  "appends": [],
+  "hostsRegistries": [],
+  "handsOffToWave1": [],
+  "notes": "Player rendering of captions/transcript is LEARN's; CAPT only produces the caption data and the authoring UI. accessibility.rule.js is recommended-only, never blocks publish. Wave 2 merge order: 3rd."
+}

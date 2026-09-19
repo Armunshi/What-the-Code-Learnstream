@@ -1,5 +1,5 @@
 import axios from "../api/axios";
-import React, { useState } from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import FileDropzone from "./FileDropzone";

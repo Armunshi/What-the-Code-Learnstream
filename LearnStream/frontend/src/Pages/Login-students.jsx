@@ -1,6 +1,5 @@
 import BackgroundWrapper from "../components/BackgroundWrapper";
 import Component from "../components/login-form";
-import React from 'react'
 
 
 function LoginT() {

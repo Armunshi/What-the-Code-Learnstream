@@ -4,6 +4,7 @@ import { Assignments } from "../models/assignment.model.js";
 import { Modules } from "../models/module.model.js";
 import { Progress } from "../models/progress.model.js";
 import { deleteMediaFromCloudinary, uploadMultipleFilesOnCloudinary } from "./media.service.js";
+import { upsertAssignmentItem, removeItem } from "./curriculum/sync.js";
 
 export const createAssignment = async (course, module, { title, deadline, files }) => {
     const existing = await Assignments.findOne({
@@ -47,6 +48,13 @@ export const createAssignment = async (course, module, { title, deadline, files 
 
     await Promise.allSettled(filePaths.map((path) => fs.unlink(path)));
 
+    // Mirrors this write into CurriculumItems (D1), under the SAME _id as the
+    // Assignments document — see services/curriculum/sync.js. Submissions
+    // keep living on the Assignments document itself (unchanged per the
+    // contract: "existing collection and submissions stay as-is"); only a
+    // thin CurriculumItems pointer to it is created here.
+    await upsertAssignmentItem({ assignment, course, module });
+
     return Assignments.findById(assignment._id).select("_id public_id deadline title");
 };
 
@@ -76,7 +84,12 @@ export const submitAssignment = async (assignment, { studentId, files }) => {
 
 /** An assignment as one student should see it — their own submissions only. */
 export const getAssignmentForStudent = async (assignmentId, studentId) => {
-    const assignment = await Assignments.findById(assignmentId).select("-module_id -assignmentUrls");
+    // `assignmentUrls` is the teacher's own material for this assignment
+    // (instructions/sample files uploaded via createAssignment) — a student
+    // needs it to know what to submit, so it must NOT be excluded here the
+    // way `module_id` (an internal reference, not something the frontend
+    // renders) is.
+    const assignment = await Assignments.findById(assignmentId).select("-module_id");
     if (!assignment) throw new ApiError(404, "The Assignment Requested was not found");
 
     const plain = assignment.toObject();
@@ -131,6 +144,7 @@ export const deleteAssignmentWithMedia = async (course, module, assignment) => {
     await module.save();
 
     await Assignments.findByIdAndDelete(assignment._id);
+    await removeItem({ itemId: assignment._id, courseId: course._id });
 };
 
 /**

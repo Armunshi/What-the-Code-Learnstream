@@ -4,6 +4,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { env } from "../../config/env.js";
 import { ROLES, User } from "../../models/user.model.js";
+import { startRegistration } from "../../services/registration.service.js";
 
 // Replaces UserStudent.controller.js and UserTeacher.controller.js, which were
 // the same four handlers twice over with "student"/"teacher" swapped through
@@ -13,15 +14,16 @@ import { ROLES, User } from "../../models/user.model.js";
 // response body still carries `role` beside the user. The frontend reads both,
 // so unifying the backend must not change either.
 
-// The frontend (learnstream-chi.vercel.app) and this API (onrender.com) are
-// different domains, so these cookies are cross-site by construction and
-// require sameSite: "none". Without `partitioned`, that makes them ordinary
-// third-party cookies — exactly the kind Chrome now blocks or silently drops
-// by default, which reproduced as real students getting signed out mid-session
-// on any request that relied on the cookie alone rather than the bearer token
-// (confirmed: production Set-Cookie headers had no Partitioned attribute, and
-// curl-based reproduction with cookies present worked while requests over the
-// same cookie failed in the browser).
+// In production, the frontend (learnstream-chi.vercel.app) and this API
+// (onrender.com) are different domains, so these cookies are cross-site by
+// construction and require sameSite: "none". Without `partitioned`, that
+// makes them ordinary third-party cookies — exactly the kind Chrome now
+// blocks or silently drops by default, which reproduced as real students
+// getting signed out mid-session on any request that relied on the cookie
+// alone rather than the bearer token (confirmed: production Set-Cookie
+// headers had no Partitioned attribute, and curl-based reproduction with
+// cookies present worked while requests over the same cookie failed in the
+// browser).
 //
 // `partitioned: true` opts into CHIPS (Cookies Having Independent Partitioned
 // State): the cookie is still Secure and HttpOnly, but is stored in a
@@ -30,13 +32,11 @@ import { ROLES, User } from "../../models/user.model.js";
 // bundled `cookie` package (0.7.1+) emits the `Partitioned` attribute for this
 // option; older cookie-parser versions would silently drop it, so don't
 // downgrade past what's pinned in package-lock.json.
-const cookieOptions = {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    partitioned: true,
-    maxAge: 24 * 60 * 60 * 1000, // 1 day
-};
+//
+// These flags are NODE_ENV-derived (BACKEND_AUDIT.md §3.12) — see
+// config/env.js's `cookieOptions` for the single definition, including why
+// local dev needs different values than production.
+const cookieOptions = env.cookieOptions;
 
 export const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -53,37 +53,41 @@ export const generateAccessAndRefreshTokens = async (userId) => {
     }
 };
 
-const respondWithSession = async (res, user, role, message) => {
+// Exported (was module-private) so routes/features/registration.routes.js's
+// POST /auth/register/verify can create the SAME session shape this file's
+// own login/register-legacy paths do, once OTP verification succeeds —
+// session creation is a controller concern (cookies), not something
+// registration.service.js's pure business logic should duplicate.
+//
+// JSON response bodies never carry `refreshToken` (S-NFR-1.2,
+// docs/contracts/api-conventions.md "Auth middleware") — it lives only in
+// the httpOnly cookie set below. This used to also put it in the JSON body,
+// which W0-B flagged as a real violation for this lane to fix.
+export const respondWithSession = async (res, user, role, message, statusCode = 200) => {
     const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id);
     const safeUser = await User.findById(user._id).select("-password -refreshToken");
 
     return res
-        .status(200)
+        .status(statusCode)
         .cookie(`${role}AccessToken`, accessToken, cookieOptions)
         .cookie(`${role}RefreshToken`, refreshToken, cookieOptions)
-        .json(new ApiResponse(200, { user: safeUser, role, accessToken, refreshToken }, message));
+        .json(new ApiResponse(statusCode, { user: safeUser, role, accessToken }, message));
 };
 
+// POST /user/:role/signup no longer creates the account directly (plan
+// S-FR-1.2/S-FR-2.1's OTP-signup design): it starts a pendingRegistration
+// and emails a code, returning 202 with no session. The account — and any
+// session — only exists after POST /auth/register/verify succeeds
+// (routes/features/registration.routes.js). e2e/lib/api-client.ts's
+// completeSignup was specifically built to accept either status for this
+// reason (see its doc comment).
 export const registerUser = (role) =>
     asyncHandler(async (req, res) => {
-        const { name, email, password } = req.body;
+        const { name, firstName, lastName, email, password } = req.body;
 
-        if ([name, email, password].some((field) => !field || field.trim() === "")) {
-            throw new ApiError(400, "all fields are required");
-        }
+        const result = await startRegistration({ name, firstName, lastName, email, password, role });
 
-        // Email is unique across ALL users now, so a teacher cannot register
-        // with an address a student already holds. Name is still only checked
-        // within the role, which is what the two separate collections used to
-        // give us — tightening it here would reject signups that worked before.
-        const existing = await User.findOne({ $or: [{ email: email.trim().toLowerCase() }, { name, role }] });
-        if (existing) {
-            throw new ApiError(409, "User with email or username already exits");
-        }
-
-        const user = await User.create({ name, email, password, role });
-
-        return respondWithSession(res, user, role, "User Logged in Succesfully");
+        return res.status(202).json(new ApiResponse(202, result, "Verification code sent"));
     });
 
 export const loginUser = (role) =>
@@ -105,7 +109,7 @@ export const loginUser = (role) =>
             throw new ApiError(401, "Invalid User Credentials");
         }
 
-        return respondWithSession(res, user, role, "User Logged in Succesfully");
+        return respondWithSession(res, user, role, "User logged in successfully");
     });
 
 export const logoutUser = (role) =>
@@ -187,5 +191,5 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
         .status(200)
         .cookie(`${role}AccessToken`, accessToken, cookieOptions)
         .cookie(`${role}RefreshToken`, refreshToken, cookieOptions)
-        .json(new ApiResponse(200, { accessToken, refreshToken, role }, "Access token refreshed"));
+        .json(new ApiResponse(200, { accessToken, role }, "Access token refreshed"));
 });
