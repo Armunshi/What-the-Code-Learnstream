@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { VideoPlayer } from "@/components/media/VideoPlayer";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpeedMenu, getPersistedPlaybackRate } from "./SpeedMenu";
 import { CaptionsMenu } from "./CaptionsMenu";
 import { TranscriptPanel } from "./TranscriptPanel";
+import { ChatPanel } from "./ChatPanel";
 import { useWatchHeartbeat } from "../hooks/useWatchHeartbeat";
 
 /**
@@ -80,14 +82,34 @@ export function LecturePlayer({ courseId, item, completed, onCompleted, onEnded 
         </div>
       </div>
 
-      <div className="h-48 rounded-lg border">
-        <TranscriptPanel
-          trackUrl={activeTrack?.url}
-          currentTimeSec={currentTimeSec}
-          onSeek={(startSec) => {
-            if (videoRef.current) videoRef.current.currentTime = startSec;
-          }}
-        />
+      <div className="h-64 rounded-lg border">
+        <Tabs defaultValue="transcript" className="flex h-full flex-col">
+          <TabsList className="mx-2 mt-2 w-fit shrink-0">
+            <TabsTrigger value="transcript">Transcript</TabsTrigger>
+            <TabsTrigger value="chat" data-testid="chat-tab-trigger">
+              Ask AI
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="transcript" className="mt-0 min-h-0 flex-1 overflow-hidden">
+            <TranscriptPanel
+              trackUrl={activeTrack?.url}
+              currentTimeSec={currentTimeSec}
+              onSeek={(startSec) => {
+                if (videoRef.current) videoRef.current.currentTime = startSec;
+              }}
+            />
+          </TabsContent>
+
+          <TabsContent value="chat" className="mt-0 min-h-0 flex-1 overflow-hidden">
+            <ChatPanel
+              lectureId={item.id}
+              onSeek={(startSec) => {
+                if (videoRef.current && startSec != null) videoRef.current.currentTime = startSec;
+              }}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
