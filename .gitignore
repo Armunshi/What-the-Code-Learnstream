@@ -1,2 +1,11 @@
 /node_modules
 /setting.json
+
+# internal planning/audit docs, kept locally only
+/AI_INTEGRATION_STRATEGY.md
+/BACKEND_AUDIT.md
+/REQUIREMENTS.md
+/UI_AUDIT.md
+/UI_REQS_14_09_26.md
+/UI_REQS_14_09_26_IMPLEMENTATION_PLAN.md
+/UI_REQS_14_09_26_course_creationflow.md
